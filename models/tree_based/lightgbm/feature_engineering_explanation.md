@@ -1,50 +1,50 @@
-# LightGBM Feature Engineering and Feature Selection
+# LightGBM Feature Engineering და Feature Selection
 
-This document explains the feature engineering and feature selection code currently placed in `model_experiment_LightGBM.ipynb`.
+ეს დოკუმენტი ხსნის, რა feature engineering და feature selection ლოგიკაა დამატებული `model_experiment_LightGBM.ipynb`-ში.
 
-The notebook defines sklearn-style transformers using:
+Notebook-ში feature engineering დაწერილია sklearn-ის სტილში:
 
 ```python
 BaseEstimator, TransformerMixin
 ```
 
-That means each feature step follows the same structure:
+ანუ თითოეული ნაბიჯი მუშაობს ასე:
 
 ```python
 transformer.fit(train_data)
-transformed_train = transformer.transform(train_data)
-transformed_valid = transformer.transform(valid_data)
+train_transformed = transformer.transform(train_data)
+valid_transformed = transformer.transform(valid_data)
 ```
 
-This is important because some features must be learned only from training data. If we calculate them using validation or test rows, we can accidentally leak future information into the model.
+ეს მნიშვნელოვანია, რადგან ზოგი feature მხოლოდ train მონაცემებიდან უნდა ვისწავლოთ. თუ validation ან test row-ების target ინფორმაციას გამოვიყენებთ, მივიღებთ target leakage-ს და validation score ხელოვნურად კარგი გამოვა.
 
 ## 1. Feature Cleaning
 
-Implemented by:
+კლასი:
 
 ```python
 WalmartFeatureCleaner
 ```
 
-This transformer prepares the raw merged Walmart data before creating new features.
+ეს transformer ამზადებს merged Walmart მონაცემებს feature engineering-მდე.
 
-### Date Conversion
+### Date-ის გარდაქმნა
 
-The `Date` column is converted to pandas datetime:
+`Date` სვეტი გარდაიქმნება pandas datetime ფორმატში:
 
 ```python
 frame["Date"] = pd.to_datetime(frame["Date"])
 ```
 
-Why:
+რატომ:
 
-- calendar features need proper datetime format;
-- sorting by time must be reliable;
-- lag and rolling features depend on correct time order.
+- calendar feature-ებს სჭირდება სწორი თარიღის ფორმატი;
+- დროით დალაგება უნდა იყოს საიმედო;
+- lag და rolling feature-ები სწორ ქრონოლოგიაზეა დამოკიდებული.
 
-### Markdown Missing Indicators
+### Markdown Missing Indicator-ები
 
-For each markdown column:
+Markdown სვეტებია:
 
 ```python
 MarkDown1
@@ -54,7 +54,7 @@ MarkDown4
 MarkDown5
 ```
 
-the transformer creates:
+თითოეულისთვის იქმნება missing indicator:
 
 ```python
 MarkDown1_missing
@@ -62,26 +62,26 @@ MarkDown2_missing
 ...
 ```
 
-Why:
+რატომ:
 
-- markdown values are missing for a large part of the dataset;
-- missing markdown does not always mean random missing data;
-- in this competition, markdown data starts appearing later in time;
-- the fact that markdown is missing may itself be useful information.
+- markdown სვეტებში ბევრი missing მნიშვნელობაა;
+- missing markdown ყოველთვის random missing data არ არის;
+- ამ competition-ში markdown მონაცემები დროის გარკვეული მომენტიდან ჩნდება;
+- თვითონ missing ფაქტიც შეიძლება სასარგებლო signal იყოს.
 
-### Markdown Filling
+### Markdown-ის 0-ით შევსება
 
-After creating the missing indicators, missing markdown values are filled with `0`.
+missing indicator-ების შექმნის შემდეგ markdown სვეტებში missing მნიშვნელობები ივსება `0`-ით.
 
-Why:
+რატომ:
 
-- a missing markdown amount is treated as no recorded promotion;
-- tree models can split on the missing indicator separately;
-- numerical operations like total markdown and log markdown need numeric values.
+- missing markdown ვთარგმნით როგორც no recorded promotion;
+- missing indicator ცალკე ინახავს ინფორმაციას, რომ originally მნიშვნელობა არ იყო;
+- `TotalMarkDown` და `log1p` feature-ებს numeric value სჭირდება.
 
 ### Numeric Imputation
 
-The transformer can fill missing values in:
+Transformer-ს შეუძლია missing მნიშვნელობების შევსება ამ სვეტებში:
 
 ```python
 CPI
@@ -90,25 +90,25 @@ Temperature
 Fuel_Price
 ```
 
-Default strategy:
+default strategy არის:
 
 ```python
 median
 ```
 
-Why median:
+რატომ median:
 
-- median is more robust than mean when there are outliers;
-- these columns are mostly complete, so this is mainly a safety step;
-- it prevents errors in later sklearn tools that may not accept missing values.
+- median mean-ზე უფრო robust-ია outlier-ების მიმართ;
+- ეს სვეტები ძირითადად შევსებულია, ამიტომ ეს უფრო safety step-ია;
+- ზოგი sklearn tool missing value-ებს ვერ იღებს.
 
-Important:
+შენიშვნა:
 
-LightGBM can handle missing numeric values itself. So this step is not always mandatory, but it keeps the pipeline consistent.
+LightGBM-ს შეუძლია numeric missing values თვითონაც დაამუშაოს. ამიტომ ეს ნაბიჯი ყოველთვის აუცილებელი არ არის, მაგრამ pipeline-ს უფრო სტაბილურს ხდის.
 
 ### Categorical Type Conversion
 
-The transformer converts:
+ეს სვეტები გადადის pandas `category` ტიპში:
 
 ```python
 Store
@@ -116,25 +116,27 @@ Dept
 Type
 ```
 
-to pandas `category`.
+რატომ:
 
-Why:
+- LightGBM pandas category dtype-ს categorical feature-ად იყენებს;
+- one-hot encoding აუცილებელი აღარ არის;
+- store და department identity ამ dataset-ში ძალიან მნიშვნელოვანი signal-ია.
 
-- LightGBM can use categorical columns directly;
-- this avoids unnecessary one-hot encoding;
-- store and department identities are important signals.
+`IsHoliday` გადადის integer ფორმატში:
 
-`IsHoliday` is converted to integer `0` or `1`.
+```python
+0 / 1
+```
 
 ## 2. Calendar Features
 
-Implemented by:
+კლასი:
 
 ```python
 CalendarFeatureTransformer
 ```
 
-This transformer creates date-based features from `Date`.
+ეს transformer `Date` სვეტიდან ქმნის calendar feature-ებს.
 
 ### Year
 
@@ -142,10 +144,10 @@ This transformer creates date-based features from `Date`.
 Year
 ```
 
-Why:
+რატომ:
 
-- sales behavior can change by year;
-- economic conditions and store behavior may drift over time.
+- გაყიდვების pattern შეიძლება წლიდან წლამდე იცვლებოდეს;
+- ეკონომიკური მდგომარეობა და store behavior დროში იცვლება.
 
 ### Month
 
@@ -153,22 +155,22 @@ Why:
 Month
 ```
 
-Why:
+რატომ:
 
-- sales have strong monthly seasonality;
-- November and December are especially important for Walmart.
+- გაყიდვებში არის monthly seasonality;
+- Walmart-ისთვის ნოემბერი და დეკემბერი განსაკუთრებით მნიშვნელოვანია.
 
-### Week Of Year
+### WeekOfYear
 
 ```python
 WeekOfYear
 ```
 
-Why:
+რატომ:
 
-- the dataset is weekly;
-- holiday effects are strongly tied to specific weeks;
-- Thanksgiving, Christmas, Super Bowl, and Labor Day happen around predictable weeks.
+- dataset weekly frequency-ზეა;
+- holiday effect-ები ხშირად კონკრეტულ კვირებზეა მიბმული;
+- Thanksgiving, Christmas, Super Bowl და Labor Day predictable week-ებში მოდის.
 
 ### Quarter
 
@@ -176,82 +178,96 @@ Why:
 Quarter
 ```
 
-Why:
+რატომ:
 
-- captures broader seasonal periods;
-- useful when monthly differences are too detailed.
+- უფრო ფართო seasonal period-ს იჭერს;
+- სასარგებლოა მაშინ, როცა month-level feature ზედმეტად დეტალურია.
 
-### Day Of Year
+### DayOfYear
 
 ```python
 DayOfYear
 ```
 
-Why:
+რატომ:
 
-- gives the model a continuous position inside the year;
-- helps model gradual seasonal movement.
+- აძლევს მოდელს წლის შიგნით continuous პოზიციას;
+- ეხმარება gradual seasonality-ის დაჭერაში.
 
-### Days From Start
+### DaysFromStart
 
 ```python
 DaysFromStart
 ```
 
-Why:
+რატომ:
 
-- gives the model a time trend feature;
-- helps capture long-term changes across the training period.
+- დროის trend feature-ია;
+- ეხმარება long-term ცვლილებების დაჭერაში.
 
-### Cyclical Week Features
+### WeekSin და WeekCos
 
 ```python
 WeekSin
 WeekCos
 ```
 
-These encode `WeekOfYear` on a circle:
+ეს არის cyclical encoding:
 
 ```python
 sin(2 * pi * WeekOfYear / 52)
 cos(2 * pi * WeekOfYear / 52)
 ```
 
-Why:
+რატომ:
 
-- week 52 and week 1 are close in time;
-- plain numeric week values make them look far apart;
-- sine and cosine make the yearly cycle continuous.
+- week 52 და week 1 რეალურად ერთმანეთთან ახლოსაა;
+- თუ მხოლოდ `WeekOfYear = 1, 2, ..., 52` გვაქვს, მოდელი week 52-ს და week 1-ს შორს დაინახავს;
+- sine/cosine representation კვირებს წრეზე ალაგებს.
 
-Important:
+მნიშვნელოვანი დეტალი:
 
-Both `WeekSin` and `WeekCos` are needed. Looking at only one of them can make different weeks look similar. Together they describe the week's position on the yearly cycle.
+ორივე feature ერთად უნდა გამოიყენო. მხოლოდ `WeekSin`-ის ნახვით ზოგ week-ს შეიძლება მსგავსი value ჰქონდეს, მაგრამ `WeekSin + WeekCos` ერთად კვირის განსხვავებულ პოზიციას აღწერს.
 
-For LightGBM, these are optional. Tree models can already use `WeekOfYear`, but keeping cyclical features lets LightGBM decide whether they help.
+მაგალითად:
 
-### Cyclical Month Features
+```text
+Week 1:
+WeekSin დაახლოებით 0.12
+WeekCos დაახლოებით 0.99
+
+Week 25:
+WeekSin დაახლოებით 0.12
+WeekCos დაახლოებით -0.99
+```
+
+ანუ week 1 და week 25 ერთი და იგივე არ არის, რადგან cosine განსხვავებულია.
+
+LightGBM-ისთვის ეს optional feature-ებია. Tree model-ები `WeekOfYear`-საც კარგად იყენებენ, მაგრამ `WeekSin` და `WeekCos` ვტოვებთ, რომ LightGBM-მა თვითონ გადაწყვიტოს, ეხმარება თუ არა.
+
+### MonthSin და MonthCos
 
 ```python
 MonthSin
 MonthCos
 ```
 
-Why:
+რატომ:
 
-- month 12 and month 1 are close in the yearly cycle;
-- this gives another smooth seasonal representation.
+- month 12 და month 1 წლიურ ციკლში ახლოსაა;
+- model-ს აძლევს smooth yearly seasonality representation-ს.
 
 ## 3. Holiday Features
 
-Implemented by:
+კლასი:
 
 ```python
 WalmartHolidayFeatureTransformer
 ```
 
-The Walmart competition gives special weight to holiday weeks, so holiday features are important.
+Walmart competition-ში holiday weeks უფრო მაღალი წონით ფასდება, ამიტომ holiday feature-ები მნიშვნელოვანია.
 
-The transformer uses known competition holiday weeks:
+გამოყენებულია competition-ის მთავარი holiday weeks:
 
 ```python
 SuperBowl
@@ -262,7 +278,7 @@ Christmas
 
 ### Holiday Week Flags
 
-For each holiday, it creates flags like:
+იქმნება ასეთი binary feature-ები:
 
 ```python
 IsSuperBowlWeek
@@ -271,16 +287,16 @@ IsThanksgivingWeek
 IsChristmasWeek
 ```
 
-Why:
+რატომ:
 
-- `IsHoliday` says only whether a row is a holiday week;
-- it does not say which holiday;
-- different holidays affect sales differently;
-- Thanksgiving and Christmas usually have much stronger sales behavior than other holidays.
+- `IsHoliday` მხოლოდ იმას ამბობს, holiday week არის თუ არა;
+- არ ამბობს რომელი holiday არის;
+- სხვადასხვა holiday გაყიდვებზე სხვადასხვანაირად მოქმედებს;
+- Thanksgiving და Christmas, როგორც წესი, ყველაზე ძლიერი sales spike-ებია.
 
 ### Holiday Proximity Features
 
-For each holiday, it creates:
+თითოეული holiday-სთვის იქმნება:
 
 ```python
 DaysToNearestSuperBowl
@@ -290,47 +306,47 @@ WeeksToNearestLaborDay
 ...
 ```
 
-Why:
+რატომ:
 
-- sales can change before or after a holiday, not only during the exact holiday week;
-- Christmas shopping may start before Christmas week;
-- Thanksgiving effects can affect nearby weeks.
+- holiday effect მხოლოდ ზუსტად holiday week-ზე არ ჩნდება;
+- Christmas shopping შეიძლება უფრო ადრე დაიწყოს;
+- Thanksgiving-ის გავლენა მის ახლო კვირებზეც შეიძლება გავრცელდეს.
 
-These features help LightGBM learn pre-holiday and post-holiday behavior.
+ეს feature-ები ეხმარება LightGBM-ს pre-holiday და post-holiday behavior-ის სწავლაში.
 
 ## 4. Markdown Features
 
-Implemented by:
+კლასი:
 
 ```python
 MarkdownFeatureTransformer
 ```
 
-Markdown columns represent promotional discount information.
+Markdown სვეტები promotional discount information-ს აღწერს.
 
-### Total Markdown
+### TotalMarkDown
 
-Creates:
+იქმნება:
 
 ```python
 TotalMarkDown
 ```
 
-by summing:
+ფორმულა:
 
 ```python
 MarkDown1 + MarkDown2 + MarkDown3 + MarkDown4 + MarkDown5
 ```
 
-Why:
+რატომ:
 
-- individual markdown columns may be sparse;
-- total promotional intensity can be more useful than each markdown alone;
-- it gives the model a single promotion-size feature.
+- individual markdown columns sparse შეიძლება იყოს;
+- total promotional intensity ხშირად უფრო მარტივი signal-ია;
+- მოდელს ეძლევა promotion size-ის ერთი aggregate feature.
 
 ### Markdown Presence Flags
 
-Creates:
+იქმნება:
 
 ```python
 HasMarkDown1
@@ -339,15 +355,15 @@ HasMarkDown2
 HasAnyMarkDown
 ```
 
-Why:
+რატომ:
 
-- the existence of a promotion may matter separately from its size;
-- tree models often benefit from simple binary split features;
-- zero promotion vs some promotion is an important distinction.
+- promotion-ის არსებობა შეიძლება მის რაოდენობაზე დამოუკიდებლადაც მნიშვნელოვანი იყოს;
+- tree model-ებს binary split feature-ები ხშირად ეხმარება;
+- zero promotion vs some promotion მნიშვნელოვანი განსხვავებაა.
 
 ### Log Markdown Features
 
-Creates:
+იქმნება:
 
 ```python
 MarkDown1_log1p
@@ -355,17 +371,17 @@ MarkDown1_log1p
 TotalMarkDown_log1p
 ```
 
-Why:
+რატომ:
 
-- markdown values can be highly skewed;
-- a very large markdown amount can dominate the raw scale;
-- `log1p` compresses large values while keeping zero valid.
+- markdown values skewed შეიძლება იყოს;
+- ძალიან დიდი markdown raw scale-ს აბინძურებს;
+- `log1p` დიდ მნიშვნელობებს compress-ს უკეთებს და zero-საც სწორად ამუშავებს.
 
-For tree models this is not strictly required, but it can still help create better split points.
+Tree model-ისთვის log transformation ყოველთვის აუცილებელი არ არის, მაგრამ ზოგჯერ უკეთეს split point-ებს ქმნის.
 
 ### Holiday Markdown Interactions
 
-Creates:
+იქმნება:
 
 ```python
 Holiday_TotalMarkDown
@@ -374,83 +390,83 @@ Holiday_MarkDown2
 ...
 ```
 
-Why:
+რატომ:
 
-- promotions may have different effects during holiday weeks;
-- the same markdown amount can matter more near Thanksgiving or Christmas;
-- this makes promotion plus holiday context explicit.
+- promotion holiday week-ში შეიძლება სხვანაირად მუშაობდეს;
+- იგივე markdown amount Thanksgiving/Christmas პერიოდში უფრო მნიშვნელოვანი იყოს;
+- interaction feature მოდელს პირდაპირ აძლევს promotion + holiday context-ს.
 
-LightGBM can learn interactions by itself, but explicit interaction features can still help.
+LightGBM interactions-ს თვითონაც სწავლობს, მაგრამ explicit interaction ზოგჯერ მაინც ეხმარება.
 
 ## 5. Categorical Interaction Features
 
-Implemented by:
+კლასი:
 
 ```python
 InteractionFeatureTransformer
 ```
 
-Default interactions:
+default interactions:
 
 ```python
 Store_Dept
 Type_Dept
 ```
 
-### Store Department Interaction
+### Store_Dept
 
 ```python
 Store_Dept
 ```
 
-Why:
+რატომ:
 
-- each store and department pair behaves like its own small time series;
-- department 1 in store 1 may behave differently from department 1 in store 20;
-- this gives LightGBM a direct identifier for each store-department combination.
+- თითოეული Store + Dept წყვილი ფაქტობრივად ცალკე time series-ია;
+- Dept 1 Store 1-ში შეიძლება სრულიად სხვანაირად იქცეოდეს, ვიდრე Dept 1 Store 20-ში;
+- ეს feature LightGBM-ს აძლევს კონკრეტული store-department წყვილის identity-ს.
 
-### Type Department Interaction
+### Type_Dept
 
 ```python
 Type_Dept
 ```
 
-Why:
+რატომ:
 
-- department behavior can differ by store type;
-- Type A, B, and C stores can have different sales scales;
-- this helps with generalization when a specific store-department pair has limited history.
+- department behavior შეიძლება store type-ის მიხედვით იცვლებოდეს;
+- Type A, B და C stores განსხვავებული scale-ისაა;
+- ეხმარება generalization-ს, განსაკუთრებით მაშინ, როცა კონკრეტულ Store_Dept წყვილს ცოტა history აქვს.
 
-The created interaction columns are converted to pandas `category`, so LightGBM can treat them as categorical features.
+ეს interaction columns გადადის pandas `category` ტიპში, რათა LightGBM-მა categorical feature-ებად გამოიყენოს.
 
-## 6. Lag and Rolling Features
+## 6. Lag და Rolling Features
 
-Implemented by:
+კლასი:
 
 ```python
 LagRollingFeatureTransformer
 ```
 
-These are usually the strongest features for weekly sales forecasting.
+ეს feature-ები weekly sales forecasting-ში, როგორც წესი, ყველაზე ძლიერია.
 
-The transformer groups by:
+Transformer grouping-ს აკეთებს:
 
 ```python
 Store
 Dept
 ```
 
-and sorts by:
+და ალაგებს:
 
 ```python
 Date
 ```
 
-This ensures every lag is calculated only within the same store-department time series.
+ანუ lag და rolling feature-ები ითვლება მხოლოდ ერთი Store + Dept time series-ის შიგნით.
 
 ### Lag Features
 
-Default lags:
+default lags:
 
 ```python
 lag_1
@@ -459,83 +475,83 @@ lag_13
 lag_52
 ```
 
-Meaning:
+მნიშვნელობა:
 
-- `lag_1`: previous week sales;
-- `lag_4`: approximately previous month sales;
-- `lag_13`: approximately previous quarter sales;
-- `lag_52`: same week last year.
+- `lag_1`: წინა კვირის sales;
+- `lag_4`: დაახლოებით წინა თვის sales;
+- `lag_13`: დაახლოებით წინა კვარტლის sales;
+- `lag_52`: წინა წლის იგივე კვირის sales.
 
-Why:
+რატომ:
 
-- sales are highly autocorrelated;
-- last week's sales are usually very predictive;
-- `lag_52` captures yearly seasonality.
+- sales time series ძლიერად autocorrelated არის;
+- წინა კვირის sales ხშირად ძალიან predictive-ია;
+- `lag_52` yearly seasonality-ს იჭერს.
 
-Important leakage note:
+Leakage note:
 
-Lag features require `Weekly_Sales`. For validation, this is okay only if the validation rows are transformed in a way that does not use future target values. For Kaggle test data, true future `Weekly_Sales` is not available, so test-time lag features require either:
+Lag feature-ებს სჭირდება `Weekly_Sales`. Validation-ზე ეს ფრთხილად უნდა გაკეთდეს, რომ validation target-ები future information-ად არ გამოვიყენოთ. Kaggle test-ზე მომავალი `Weekly_Sales` უცნობია, ამიტომ test-time lag feature-ებისთვის საჭიროა:
 
-- using only historical train sales where available;
+- მხოლოდ train history-ის გამოყენება;
 - recursive prediction;
-- or disabling lag features for a simpler baseline.
+- ან lag feature-ების გამორთვა simpler baseline-ისთვის.
 
 ### Rolling Mean Features
 
-Default rolling windows:
+default rolling windows:
 
 ```python
 rolling_mean_4
 rolling_mean_13
 ```
 
-Why:
+რატომ:
 
-- rolling mean smooths noisy weekly sales;
-- it captures recent demand level;
-- 4 weeks gives short-term trend;
-- 13 weeks gives quarterly trend.
+- rolling mean noisy weekly sales-ს ასწორებს;
+- recent demand level-ს იჭერს;
+- 4 weeks short-term trend-ია;
+- 13 weeks quarterly trend-ია.
 
 ### Rolling Standard Deviation Features
 
-Default rolling std features:
+default rolling std:
 
 ```python
 rolling_std_4
 rolling_std_13
 ```
 
-Why:
+რატომ:
 
-- some store-department series are stable;
-- others are volatile;
-- volatility can help the model understand uncertainty and sales behavior.
+- ზოგი Store_Dept სერია სტაბილურია;
+- ზოგი volatile არის;
+- volatility feature ეხმარება მოდელს sales behavior-ის უკეთ დაჭერაში.
 
 ### Shift Before Rolling
 
-Rolling features use shifted sales:
+Rolling features ითვლება shifted target-ზე:
 
 ```python
 shift(1).rolling(...)
 ```
 
-Why:
+რატომ:
 
-- the current row's `Weekly_Sales` must not be used to predict itself;
-- this prevents target leakage;
-- only past weeks are allowed.
+- current row-ის `Weekly_Sales` არ უნდა გამოვიყენოთ current row-ის prediction-ში;
+- ეს იცავს target leakage-სგან;
+- მოდელს მხოლოდ წარსული კვირების ინფორმაცია უნდა ჰქონდეს.
 
 ## 7. Historical Aggregate Features
 
-Implemented by:
+კლასი:
 
 ```python
 HistoricalAggregateTransformer
 ```
 
-This transformer calculates target statistics from training data only.
+ეს transformer target statistics-ს ითვლის მხოლოდ train data-დან.
 
-Default groupings:
+default groupings:
 
 ```python
 Store
@@ -544,7 +560,7 @@ Store + Dept
 Type + Dept
 ```
 
-Default statistics:
+default stats:
 
 ```python
 mean
@@ -552,9 +568,9 @@ median
 std
 ```
 
-### Store Sales Aggregates
+### Store Aggregates
 
-Examples:
+მაგალითები:
 
 ```python
 Store_Weekly_Sales_mean
@@ -562,14 +578,14 @@ Store_Weekly_Sales_median
 Store_Weekly_Sales_std
 ```
 
-Why:
+რატომ:
 
-- some stores are generally larger than others;
-- store-level averages capture store scale.
+- ზოგი store უფრო დიდია და ზოგადად მეტი sales აქვს;
+- store-level average store scale-ს იჭერს.
 
-### Department Sales Aggregates
+### Department Aggregates
 
-Examples:
+მაგალითები:
 
 ```python
 Dept_Weekly_Sales_mean
@@ -577,14 +593,14 @@ Dept_Weekly_Sales_median
 Dept_Weekly_Sales_std
 ```
 
-Why:
+რატომ:
 
-- some departments sell much more than others;
-- department identity is one of the strongest signals.
+- ზოგი department ბევრად მეტს ყიდის, ვიდრე სხვა;
+- department identity ერთ-ერთი ყველაზე ძლიერი signal-ია.
 
-### Store Department Aggregates
+### Store_Dept Aggregates
 
-Examples:
+მაგალითები:
 
 ```python
 Store_Dept_Weekly_Sales_mean
@@ -592,14 +608,14 @@ Store_Dept_Weekly_Sales_median
 Store_Dept_Weekly_Sales_std
 ```
 
-Why:
+რატომ:
 
-- each store-department pair has its own baseline sales level;
-- this is useful for global models trained across all stores and departments.
+- თითოეულ Store_Dept pair-ს თავისი baseline sales level აქვს;
+- global model-ს, რომელიც ყველა store/dept-ზე ერთად trainდება, ეს feature ძალიან ეხმარება.
 
-### Type Department Aggregates
+### Type_Dept Aggregates
 
-Examples:
+მაგალითები:
 
 ```python
 Type_Dept_Weekly_Sales_mean
@@ -607,113 +623,113 @@ Type_Dept_Weekly_Sales_median
 Type_Dept_Weekly_Sales_std
 ```
 
-Why:
+რატომ:
 
-- useful fallback when a specific store-department pair has weak or missing history;
-- captures behavior by store type and department.
+- fallback signal-ია, როცა კონკრეტული Store_Dept history სუსტია ან საერთოდ არ არსებობს;
+- store type + department behavior-ს იჭერს.
 
 ### Missing Aggregate Fill
 
-If a validation or test group was not seen during training, aggregate values are filled using the global target statistic.
+თუ validation/test-ში ისეთი group გამოჩნდა, რომელიც train-ში არ იყო, aggregate value ივსება global statistic-ით.
 
-Why:
+რატომ:
 
-- prevents missing values for new or rare groups;
-- gives the model a reasonable fallback.
+- new/rare group-ებზე missing values არ გვრჩება;
+- model იღებს reasonable fallback-ს.
 
-Important leakage note:
+Leakage note:
 
-These aggregates must be fitted only on training data. Do not calculate them using the full train + validation dataset before validation, because that would leak validation target information.
+ეს aggregates აუცილებლად train split-ზე უნდა fit-დეს. თუ full train + validation-ზე დაითვლება, validation target information გაჟონავს feature-ებში.
 
 ## 8. Column Dropping
 
-Implemented by:
+კლასი:
 
 ```python
 ColumnDropper
 ```
 
-Default dropped columns:
+default dropped columns:
 
 ```python
 Date
 Weekly_Sales
 ```
 
-Why:
+რატომ:
 
-- `Weekly_Sales` is the target and must not be inside model features;
-- raw `Date` is not directly usable by LightGBM unless converted;
-- after calendar features are created, raw date can usually be removed.
+- `Weekly_Sales` target-ია და feature-ებში არ უნდა დარჩეს;
+- raw `Date` LightGBM-ს პირდაპირ არ სჭირდება, რადგან მისგან calendar features უკვე შევქმენით;
+- model training-მდე target და raw date უნდა ამოვიღოთ.
 
 ## 9. Feature Selection
 
-Implemented by:
+კლასი:
 
 ```python
 FeatureImportanceSelector
 ```
 
-This is a model-based feature selection transformer.
+ეს არის model-based feature selection.
 
-It works like this:
+როგორ მუშაობს:
 
-1. Fit an estimator on the engineered features.
-2. Read the estimator's `feature_importances_`.
-3. Keep features whose importance is greater than a threshold.
-4. Transform future data by keeping only those selected columns.
+1. estimator trainდება engineered features-ზე.
+2. კითხულობს estimator-ის `feature_importances_`.
+3. ინახავს მხოლოდ იმ feature-ებს, რომელთა importance threshold-ზე მეტია.
+4. future transform-ზე აბრუნებს მხოლოდ selected columns-ს.
 
-Example logic:
+ლოგიკა:
 
 ```python
 selected_features = feature_importances[feature_importances > threshold]
 ```
 
-### Why Use Model-Based Feature Selection?
+### რატომ Model-Based Feature Selection?
 
-LightGBM can handle many features, so aggressive feature selection is not necessary at the beginning.
+LightGBM ბევრ feature-ს კარგად უმკლავდება, ამიტომ დასაწყისში aggressive feature selection საჭირო არ არის.
 
-But feature selection can help:
+მაგრამ feature selection შეიძლება დაგვეხმაროს:
 
-- remove useless zero-importance features;
-- reduce training time;
-- simplify explanation;
-- reduce noise if validation performance improves.
+- zero-importance feature-ების მოშორებაში;
+- training time-ის შემცირებაში;
+- model explanation-ის გამარტივებაში;
+- noise-ის შემცირებაში, თუ validation score გაუმჯობესდება.
 
 ### Recommended Threshold
 
-Start with:
+საწყისად გამოიყენე:
 
 ```python
 threshold = 0.0
 ```
 
-This removes only features that LightGBM never used.
+ეს აშორებს მხოლოდ იმ feature-ებს, რომლებიც model-მა საერთოდ არ გამოიყენა.
 
-Do not remove too many features immediately. If a feature has low importance but helps in combination with another feature, removing it can hurt performance.
+ძალიან ბევრი feature თავიდანვე არ წაშალო. ზოგ feature-ს დაბალი individual importance აქვს, მაგრამ სხვა feature-თან interaction-ში შეიძლება სასარგებლო იყოს.
 
-### Better Validation Rule
+### Validation Rule
 
-Feature selection should be accepted only if validation score improves or stays the same.
+Feature selection უნდა დავტოვოთ მხოლოდ მაშინ, თუ validation score გაუმჯობესდა ან იგივე დარჩა.
 
-Recommended process:
+რეკომენდებული პროცესი:
 
-1. Train LightGBM with all engineered features.
-2. Save validation WMAE.
-3. Select non-zero-importance features.
-4. Retrain LightGBM with selected features.
-5. Compare validation WMAE.
-6. Keep selected features only if validation WMAE improves or the simpler model is preferred.
+1. Train LightGBM ყველა engineered feature-ით.
+2. შეინახე validation WMAE.
+3. აირჩიე non-zero-importance features.
+4. თავიდან train LightGBM selected features-ით.
+5. შეადარე validation WMAE.
+6. selected feature set დატოვე მხოლოდ მაშინ, თუ WMAE გაუმჯობესდა ან simpler model გჭირდება.
 
 ## 10. Default Pipeline
 
-Implemented by:
+ფუნქცია:
 
 ```python
 make_walmart_lgbm_feature_pipeline
 ```
 
-Default order:
+default order:
 
 ```text
 1. WalmartFeatureCleaner
@@ -726,79 +742,79 @@ Default order:
 8. ColumnDropper
 ```
 
-This order matters.
+ეს order მნიშვნელოვანია.
 
-Cleaning comes first because later steps need valid dates, numeric markdown values, and categorical columns.
+Cleaning პირველია, რადგან შემდეგ ნაბიჯებს სჭირდება სწორი date, numeric markdown values და categorical columns.
 
-Calendar and holiday features come before modeling because they use `Date`.
+Calendar და holiday features იქმნება raw `Date`-დან.
 
-Markdown features come after markdown cleaning because they depend on non-missing markdown values.
+Markdown features იქმნება markdown cleaning-ის შემდეგ, რადგან missing values უკვე 0-ითაა შევსებული.
 
-Historical aggregates are fitted before dropping `Weekly_Sales` because they need the target column.
+Historical aggregates უნდა შეიქმნას `Weekly_Sales` drop-მდე, რადგან target column სჭირდება.
 
-Lag and rolling features are also created before dropping `Weekly_Sales`.
+Lag და rolling features-ებსაც `Weekly_Sales` სჭირდება.
 
-Finally, `Date` and `Weekly_Sales` are dropped before model training.
+ბოლოს `Date` და `Weekly_Sales` იშლება model training-მდე.
 
-## 11. What LightGBM Receives
+## 11. რას იღებს LightGBM
 
-After the pipeline, LightGBM receives a table containing:
+Pipeline-ის შემდეგ LightGBM იღებს feature table-ს, სადაც არის:
 
-- original clean numeric features;
-- categorical features such as `Store`, `Dept`, `Type`;
+- cleaned numeric features;
+- categorical features: `Store`, `Dept`, `Type`;
 - calendar features;
-- holiday flags and proximity features;
-- markdown amount, presence, log, and interaction features;
-- store-department interaction categories;
-- lag and rolling sales features;
+- holiday flags და proximity features;
+- markdown amount, presence, log და interaction features;
+- Store_Dept და Type_Dept categorical interactions;
+- lag და rolling sales features;
 - historical target aggregates.
 
-The target remains:
+Target ცალკეა:
 
 ```python
 Weekly_Sales
 ```
 
-and should be passed separately as `y_train`.
+და model-ს უნდა გადაეცეს როგორც `y_train`.
 
-## 12. Main Leakage Risks
+## 12. მთავარი Leakage Risks
 
-The most important risks are:
+ყველაზე მნიშვნელოვანი leakage risks:
 
 ```text
-1. Historical aggregates calculated on validation/test target values.
-2. Rolling features using the current row's target.
-3. Test lag features using unknown future sales.
-4. Random train/validation split for a forecasting task.
+1. Historical aggregates validation/test target values-ზე დათვლა.
+2. Rolling features current row target-ის გამოყენებით.
+3. Test lag features unknown future sales-ით.
+4. Forecasting task-ზე random train/validation split.
 ```
 
-To avoid these:
+თავიდან ასაცილებლად:
 
-- fit aggregate features only on training data;
-- use `shift(1)` before rolling statistics;
-- use time-based validation;
-- be careful with lag features during test inference.
+- aggregate transformer fit გააკეთე მხოლოდ train split-ზე;
+- rolling statistics დათვალე `shift(1)`-ის შემდეგ;
+- გამოიყენე time-based validation;
+- test inference-ზე lag feature-ებს ძალიან ფრთხილად მოექეცი.
 
-## 13. Practical Recommendation
+## 13. პრაქტიკული რეკომენდაცია
 
-For the first LightGBM experiment:
+პირველი LightGBM experiment-ისთვის:
 
-1. Use all engineered features.
-2. Use a time-based validation split.
-3. Evaluate with weighted MAE.
-4. Inspect feature importance.
-5. Remove only zero-importance features.
-6. Retrain and compare validation WMAE.
+1. გამოიყენე ყველა engineered feature.
+2. validation გააკეთე time-based split-ით.
+3. metric-ად გამოიყენე weighted MAE.
+4. ნახე feature importance.
+5. წაშალე მხოლოდ zero-importance features.
+6. თავიდან train გააკეთე და შეადარე validation WMAE.
 
-The most important feature groups are expected to be:
+მოსალოდნელად ყველაზე მნიშვნელოვანი feature groups იქნება:
 
 ```text
 1. lag features
 2. rolling sales features
-3. Store/Dept identity and aggregates
+3. Store/Dept identity და aggregates
 4. holiday features
 5. markdown features
 6. calendar features
 ```
 
-For this Walmart dataset, historical sales features usually matter more than complex feature-selection methods.
+ამ Walmart dataset-ში historical sales features, როგორც წესი, უფრო მნიშვნელოვანია, ვიდრე რთული feature selection მეთოდები.
