@@ -251,7 +251,9 @@ predictions = pipeline.predict(test_raw)
 Pipeline-ისთვის დამატებულია ორი contract test:
 
 1. მისი prediction უნდა ემთხვეოდეს notebook-ის manual preprocessing + model prediction-ს;
-2. `joblib`-ით შენახვისა და ხელახლა ჩატვირთვის შემდეგ prediction არ უნდა შეიცვალოს.
+2. `cloudpickle`-ით შენახვისა და ხელახლა ჩატვირთვის შემდეგ prediction არ უნდა შეიცვალოს.
+
+`cloudpickle` pipeline-თან ერთად notebook-ში განსაზღვრულ custom class-ებსაც ინახავს. დამატებითი fresh-process smoke test ამოწმებს, რომ pipeline ცალკე Python პროცესში იტვირთება notebook-ის class definition-ების ხელახლა გაშვების გარეშე. ამიტომ Colab inference-ს ცალკე `.py` ფაილი არ სჭირდება.
 
 ასევე ინარჩუნებს raw input row order-ს, რათა prediction სწორ `Id`-ს დაუკავშირდეს submission-ში.
 
