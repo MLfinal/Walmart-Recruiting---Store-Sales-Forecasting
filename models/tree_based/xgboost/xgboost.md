@@ -1,4 +1,4 @@
-# XGBoost — training ექსპერიმენტების შეჯამება
+# XGBoost — training, pipeline და inference
 
 ეს დოკუმენტი აჯამებს Walmart-ის კვირეული გაყიდვების პროგნოზირებისთვის ჩატარებულ XGBoost ექსპერიმენტებს: რა მიდგომები ვცადეთ, როგორ გადავედით baseline-იდან feature-rich მოდელზე, როგორ გამოვიყენეთ W&B ექსპერიმენტების სამართავად და რა ვისწავლეთ შედეგებიდან.
 
@@ -6,6 +6,7 @@
 
 - [`baseline_xgboost.ipynb`](./baseline_xgboost.ipynb) — საწყისი, შედარებით მარტივი XGBoost;
 - [`model_experiment_XGBoost.ipynb`](./model_experiment_XGBoost.ipynb) — feature engineering, Optuna tuning, დიაგნოსტიკა, full refit და raw-input pipeline;
+- [`xgboost_inference.ipynb`](./xgboost_inference.ipynb) — W&B Registry-დან `champion` pipeline-ის ჩამოტვირთვა და Kaggle submission;
 - [`basexgboost.md`](./basexgboost.md) — baseline notebook-ის დეტალური, cell-level აღწერა;
 - [`../lightgbm/feature_engineering_explanation.md`](../lightgbm/feature_engineering_explanation.md) — feature-ების ტექნიკური აღწერა.
 
@@ -272,7 +273,15 @@ champion
 latest
 ```
 
-Registry artifact-ში შედის pipeline, feature manifest, config, metrics და feature importance. `model_inference.ipynb`-ის ამოცანა იქნება `champion` version-ის ჩამოტვირთვა, pipeline-ის ჩატვირთვა და raw test-ზე `predict()`-ის გამოძახება.
+Registry artifact-ში შედის pipeline, feature manifest, config, metrics და feature importance. [`xgboost_inference.ipynb`](./xgboost_inference.ipynb) `champion` version-ს Registry-დან ჩამოტვირთავს, `cloudpickle` pipeline-ს იტვირთავს და raw test-ზე პირდაპირ `predict()`-ს იძახებს.
+
+Inference run W&B-ში model artifact-ს input-ად და submission artifact-ს output-ად აფიქსირებს. ამგვარად lineage სრულდება:
+
+```text
+training data → tuned model → champion pipeline → inference run → submission
+```
+
+Notebook დამატებით ამოწმებს raw test schema-ს, prediction-ების რაოდენობასა და finite მნიშვნელობებს, ინახავს distribution diagnostics-ს, ქმნის manifest-ს და სურვილის შემთხვევაში Kaggle API-ით submission-ს აგზავნის.
 
 შენიშვნა: notebook-ში registration cell დამატებულია, მაგრამ Registry-ში ახალი version მხოლოდ ამ cell-ის წარმატებით შესრულების შემდეგ გამოჩნდება.
 
@@ -291,5 +300,4 @@ Registry artifact-ში შედის pipeline, feature manifest, config, met
 
 - feature-group ablation: history, holiday, markdown და aggregate ჯგუფების ცალ-ცალკე გავლენის გაზომვა;
 - time-based cross-validation რამდენიმე cutoff-ზე;
-- registered `champion` pipeline-ის გამოყენება `model_inference.ipynb`-ში;
 - Kaggle submission score-ის დამატება W&B run-სა და მთავარ პროექტის README-ში.
