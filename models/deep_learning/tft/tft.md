@@ -277,25 +277,49 @@ Decision rule:
 - თუ v2 ისევ seasonal naive-ზე უარესია, შემდეგი ნაბიჯი უნდა იყოს sample/window strategy ან TFT-ის შეჩერება;
 - თუ v2 v1-ს ძლიერად აჯობებს, შემდეგ v3-ში შეიძლება top series count/training budget გავზარდოთ.
 
-### v2 result status
+### v2 result
 
-ამ repo snapshot-ში `model_experiment_TFT_v2.ipynb` უკვე დამატებულია, მაგრამ notebook outputs-ში final run metrics არ ჩანს. ამიტომ README-ში v2-ის numeric result ჯერ არ უნდა ჩაიწეროს guessing-ით.
+v2 წარმატებით გაეშვა. ამ run-ში `model_experiment_TFT.ipynb` უკვე v2 notebook-ად არის შენახული.
 
-v2 result-ისთვის საჭიროა W&B run summary-დან ან Colab output-იდან ეს values:
+Run setup:
 
 ```text
-best_validation_wmae
-seasonal_naive_wmae
-improvement_vs_seasonal_naive_pct
-improvement_vs_v1_pct
-best_val_loss
-W&B run link
+top_n_series = 500
+encoder_weeks = 39
+target = SalesLog = log1p(max(Weekly_Sales, 0))
+hidden_size = 16
+attention_head_size = 2
+trainable params = 41.1K
+max_epochs = 10
+best_checkpoint = epoch 7
+best_val_loss = 0.1205
 ```
 
-სანამ ეს numbers არ გვაქვს, v2-ის conclusion რჩება:
+Validation result იმავე top-500 subset-ზე:
 
 ```text
-status = trained by user, exact result not available in local notebook outputs
+seasonal_naive_wmae = 4969.77
+tft_v1_wmae = 6200.95
+tft_v2_wmae = 6524.68
+improvement_vs_seasonal_naive_pct = -31.29%
+improvement_vs_v1_pct = -5.22%
+prediction_rows = 19500
+```
+
+Interpretation:
+
+- log target-მა training loss numeric scale-ზე გაალამაზა (`best_val_loss = 0.1205`), მაგრამ Kaggle WMAE original scale-ზე გააუარესა;
+- v2 v1-ზე `5.22%`-ით უარესია;
+- v2 seasonal naive-ზე `31.29%`-ით უარესია;
+- ამიტომ log target rejected ამ setup-ში;
+- TFT-ის პრობლემა მხოლოდ raw target scale არ ყოფილა. მთავარი პრობლემა უფრო likely არის model-selection objective, WMAE weighting, და ის, რომ TFT მთელ forecast level-ს სწავლობს, როცა seasonal naive უკვე ძალიან ძლიერი referenceა.
+
+ამ ეტაპზე საუკეთესო TFT run არის v1, მაგრამ ისიც seasonal naive-ს ვერ ჯობნის:
+
+```text
+best_observed_tft = v1
+best_observed_tft_wmae = 6200.95
+seasonal_naive_on_same_subset = 4969.77
 ```
 
 ## შემდეგ რა უნდა ვცადოთ TFT-ში
@@ -311,7 +335,7 @@ TFT-ის ცუდი შედეგი ჯერ არ ნიშნავ�
 ყველაზე აზრიანი შემდეგი მცდელობები:
 
 1. **v3: weighted validation/selection fix**  
-   checkpoint selection არ უნდა ენდობოდეს მხოლოდ `val_loss`-ს. უნდა დავამატოთ epoch-end custom WMAE evaluation ან training-ის შემდეგ რამდენიმე checkpoint-ის WMAE comparison. მიზანი: საუკეთესო checkpoint ავირჩიოთ Kaggle WMAE-ით.
+   checkpoint selection არ უნდა ენდობოდეს მხოლოდ `val_loss`-ს. v2-მ კარგად აჩვენა ეს: `val_loss` პატარა იყო, მაგრამ WMAE ცუდი გამოვიდა. უნდა დავამატოთ training-ის შემდეგ რამდენიმე saved checkpoint-ის custom WMAE comparison ან callback, რომელიც best model-ს Kaggle WMAE-ით აირჩევს.
 
 2. **v4: stronger seasonal baseline hybrid**  
    TFT-ს ვასწავლოთ არა raw sales, არამედ seasonal naive residual:
@@ -332,4 +356,6 @@ TFT-ის ცუდი შედეგი ჯერ არ ნიშნავ�
    max_epochs = 15-20
    ```
 
-თუ v3/v4-იც seasonal naive-ზე უარესია, TFT უნდა დავხუროთ როგორც non-competitive model და inference არ უნდა დავწეროთ.
+ამ ორი გზიდან უკეთესი შემდეგი ნაბიჯია **seasonal residual TFT**. მიზეზი: v1/v2 ორივე ვერ სწავლობს full sales level-ს ისე კარგად, როგორც 52-week seasonal naive. ამიტომ უფრო სწორია, TFT-ს ვასწავლოთ correction seasonal naive-ზე.
+
+თუ seasonal residual TFT-იც seasonal naive-ზე უარესია, TFT უნდა დავხუროთ როგორც non-competitive model და inference არ უნდა დავწეროთ.
