@@ -189,7 +189,7 @@ Prediction = real SeasonalNaive52 + PredictedResidual
 
 ასე მივხვდით, რომ შედეგი არ ასახავდა residual TFT-ის ხარისხს. ეს იყო implementation bug. seasonal baseline row-wise shifted column-ით შეიქმნა და validation reconstruction-ში სწორად არ დალაგდა.
 
-## v3 fixed notebook
+## v3 fixed notebook და სწორი residual run
 
 ამის შემდეგ notebook გავასწორეთ. ახლა seasonal baseline იქმნება Store-Dept sales panel-იდან და არა row order-ზე დაყრდნობილი shift-ით.
 
@@ -216,7 +216,39 @@ seasonal_naive_wmae_check
 
 თუ validation seasonal baseline ისევ ნული გამოვა, notebook error-ს აგდებს და invalid evaluation აღარ გაგრძელდება.
 
-ამჟამინდელი `model_experiment_TFT.ipynb` არის fixed residual version. ძველი invalid v3 შედეგი README-ში დარჩა როგორც training story-ის ნაწილი, რადგან ზუსტად ამ output-მა გვაჩვენა implementation bug.
+fixed run-ის დროს sanity check-ებმა აჩვენა, რომ seasonal baseline უკვე რეალური იყო:
+
+```text
+validation_seasonal_min = 2702.18
+validation_seasonal_mean = 53437.45
+validation_seasonal_max = 241120.00
+eval_seasonal_min = 2702.18
+eval_seasonal_mean = 53437.45
+eval_seasonal_max = 241120.00
+seasonal_naive_wmae_check = 4969.77
+```
+
+ეს უკვე სწორი evaluation იყო, რადგან validation-ში `SeasonalNaive52` აღარ იყო ნული. W&B run:
+
+```text
+https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/nqjm85gh
+```
+
+შედეგი:
+
+```text
+seasonal_naive_wmae = 4969.77
+tft_v3_fixed_wmae = 5212.71
+improvement_vs_seasonal_naive_pct = -4.89%
+improvement_vs_v1_pct = +15.94%
+improvement_vs_v2_pct = +20.11%
+best_val_loss = 5230.30
+prediction_rows = 19500
+```
+
+ამ run-მა გვაჩვენა, რომ residual idea რეალურად მუშაობს უკეთ, ვიდრე v1 და v2. WMAE `6200.95`-დან `5212.71`-მდე ჩამოვიდა v1-თან შედარებით და `6524.68`-დან `5212.71`-მდე v2-თან შედარებით. მაგრამ seasonal naive მაინც უკეთესია: `4969.77` vs `5212.71`. ანუ TFT-მ ისწავლა useful correction, მაგრამ correction ზედმეტად აგრესიულია და seasonal baseline-ს ბოლომდე ვერ აჯობა.
+
+ამჟამინდელი `model_experiment_TFT.ipynb` არის fixed residual version. ძველი invalid v3 შედეგი README-ში დარჩა როგორც training story-ის ნაწილი, რადგან ზუსტად იმ output-მა გვაჩვენა implementation bug.
 
 ## შედეგების მოკლე ცხრილი
 
@@ -225,8 +257,9 @@ seasonal_naive_wmae_check
 | seasonal naive | top 300 | 52-week lookup | 6026.29 | reference |
 | baseline | top 300 | small TFT, calendar only | 7801.90 | pipeline/logging OK, model weak |
 | seasonal naive | top 500 | 52-week lookup | 4969.77 | reference |
-| v1 | top 500 | raw sales + external covariates | 6200.95 | best valid TFT so far |
+| v1 | top 500 | raw sales + external covariates | 6200.95 | external covariates დაეხმარა baseline-თან შედარებით |
 | v2 | top 500 | log target + external covariates | 6524.68 | worse than v1 |
 | v3 invalid | top 500 | residual, broken seasonal base | 53035.36 | invalid implementation |
+| v3 fixed | top 500 | residual + correct 52-week lookup | 5212.71 | best valid TFT so far, მაგრამ seasonal naive-ზე უარესი |
 
-ამ ეტაპზე საუკეთესო valid TFT არის v1, მაგრამ ისიც seasonal naive-ს ვერ ჯობნის. v3-ის fixed notebook მზად არის იმისთვის, რომ residual idea ერთხელ სწორად შემოწმდეს.
+ამ ეტაპზე საუკეთესო valid TFT არის v3 fixed. მთავარი გაკვეთილი ასეთია: TFT-სთვის full sales-ის სწავლა რთული აღმოჩნდა, log target-მა WMAE გააუარესა, ხოლო seasonal residual-მა მოდელი ბევრად დააახლოვა seasonal naive-სთან. საბოლოო პრობლემა დარჩა ის, რომ residual correction ჯერ კიდევ ზედმეტ შეცდომას ამატებს და reference baseline-ს `4.89%`-ით ჩამორჩება.
