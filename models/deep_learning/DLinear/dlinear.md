@@ -1,214 +1,369 @@
-# DLinear — baseline და პირველი დასკვნები
+# DLinear
 
-ეს ფოლდერი არის DLinear მოდელის სამუშაო სივრცე Walmart-ის weekly sales forecasting ამოცანაზე.
+ფოლდერი: `models/deep_learning/DLinear`
 
-ამ ეტაპზე დასრულებულია baseline და პირველი მცირე ექსპერიმენტი. შემდეგი ექსპერიმენტები დაემატება იგივე დოკუმენტში, რომ საბოლოოდ გვქონდეს ერთი თანმიმდევრული ისტორია: საიდან დავიწყეთ, რა შევცვალეთ, რა შედეგი მივიღეთ და რატომ.
+მიზანი არის DLinear-ის ეტაპობრივი განვითარება: ჯერ სუფთა baseline, შემდეგ მცირე კონტროლირებული ცვლილებები. ყველა run ფასდება იგივე წესით: ბოლო 39 კვირა validation-ად და Kaggle-ის WMAE, სადაც holiday row-ის წონაა 5, დანარჩენის 1.
 
 ## რატომ DLinear
 
-DLinear ავირჩიეთ როგორც deep learning არქიტექტურის მარტივი baseline. მისი მთავარი იდეაა დროითი სერიის ორ ნაწილად გაყოფა:
+DLinear არის მარტივი deep learning time-series მოდელი. ის input sequence-ს ყოფს ორ ნაწილად:
 
-- trend — გრძელვადიანი მიმართულება;
-- seasonal/residual — ის ნაწილი, რაც trend-ის შემდეგ რჩება.
+- `trend` — moving average-ით მიღებული გლუვი ნაწილი;
+- `seasonal/residual` — input minus trend.
 
-შემდეგ ორივე ნაწილი მარტივი linear projection-ით პროგნოზირდება მომავალ ჰორიზონტზე. ეს მიდგომა გაცილებით მარტივია, ვიდრე TFT, N-BEATS ან PatchTST, ამიტომ კარგი საწყისი წერტილია: თუ ასეთი მარტივი neural მოდელი უკვე მუშაობს, შემდეგ ექსპერიმენტებში შეგვიძლია უფრო თავდაჯერებულად დავამატოთ embeddings, covariates, tuning და სხვა არქიტექტურული ცვლილებები.
+შემდეგ ორივე ნაწილი linear layer-ით გადადის forecast horizon-ზე და ჯამდება. ჩვენთვის ეს არის კარგი neural baseline, რადგან XGBoost/LightGBM-ისგან განსხვავებით ჯერ მხოლოდ historical sales sequence-ს უყურებს და არა ბევრ tabular feature-ს.
 
-## baseline notebook
+## Notebook-ების საერთო სტრუქტურა
 
-ფაილი:
+ორივე notebook ერთნაირი ლოგიკითაა აგებული:
 
-`baseline_dlinear.ipynb`
+1. install/import/config  
+   ყენდება PyTorch/W&B, ფიქსირდება seed, ირჩევა device, იწერება `CONFIG`. მთავარი პარამეტრებია `validation_weeks=39`, `input_weeks`, learning rate, patience, W&B project/entity.
 
-baseline-ის მთავარი ლოგიკა:
+2. data loading  
+   Drive-იდან იტვირთება `train.csv` და `test.csv`. მოთხოვნილი columns მოწმდება: `Store`, `Dept`, `Date`, `Weekly_Sales`, `IsHoliday`.
 
-- ვალიდაციად ავიღეთ ბოლო 39 კვირა;
-- 39 კვირა ემთხვევა Kaggle test horizon-ს, ამიტომ მოდელი სწავლობს პირდაპირ 39-კვირიან პროგნოზს;
-- ყველა Store-Dept წყვილი გადავიყვანეთ ერთიან weekly panel-ში;
-- missing weekly sales baseline-ში შევავსეთ 0-ით;
-- input window არის ბოლო 52 კვირა;
-- მოდელი არის global univariate DLinear — ყველა Store-Dept სერიაზე ერთი საერთო მოდელი;
-- შეფასების მეტრიკა არის WMAE, რადგან Kaggle-იც ამით აფასებს;
-- holiday row-ებს მივანიჭეთ წონა 5, non-holiday row-ებს წონა 1;
-- ყველაფერი დალოგილია W&B-ზე, MLflow არ გამოგვიყენებია.
+3. weekly panel  
+   `train.csv` გარდაიქმნება matrix-ად: row = `(Store, Dept)`, column = weekly date, value = `Weekly_Sales`. DLinear fixed-length sequence-ს ითხოვს, ამიტომ ეს panel არის მთავარი data format. missing sales baseline-ში ივსება `0.0`-ით.
 
-baseline-ის მიზანი არ იყო მაქსიმალური score. მიზანი იყო სუფთა საწყისი წერტილი, რომელიც გვაძლევს პასუხს კითხვაზე: “რამდენად შორს მიდის ძალიან მარტივი DLinear historical target-ის გამოყენებით?”
+4. split  
+   ბოლო 39 კვირა არის validation. დანარჩენი ისტორია გამოიყენება training windows-ის შესაქმნელად. ეს leakage-safe split-ია, რადგან validation future period training-ში არ ხვდება.
 
-## W&B run
+5. metric/loss  
+   `wmae()` ითვლის Kaggle metric-ს original sales scale-ზე. `weighted_mae_loss()` იგივე holiday weights-ს იყენებს normalized target-ზე training-ის დროს.
 
-baseline run:
+6. datasets  
+   `WindowDataset` ქმნის sliding windows-ს training-ისთვის: past `input_weeks` → next 39 weeks. აბრუნებს `x`, `y`, `weights`, `mean`, `std`, `series_idx` და საჭიროებისას future calendar features-ს.  
+   `ValidationDataset` თითო Store-Dept სერიაზე ქმნის ერთ example-ს: validation-მდე არსებული ბოლო `input_weeks` → ბოლო 39 validation კვირა.
 
-https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/eep8a1y5
+7. model classes  
+   `MovingAverage` აკეთებს trend smoothing-ს.  
+   `SeriesDecomposition` აბრუნებს `(seasonal, trend)`.  
+   `DLinear` ან მისი experiment version forecast-ს აგებს trend/seasonal linear projections-ით.  
+   experiment notebook-ში ემატება `series_bias` ან calendar branch.
 
-W&B-ზე დალოგილია:
+8. train/evaluate  
+   train loop აკეთებს forward/backward/gradient clipping-ს. `evaluate_model()` აბრუნებს predictions original scale-ზე და ითვლის validation WMAE-ს. `ReduceLROnPlateau` ამცირებს learning rate-ს, early stopping აჩერებს run-ს თუ validation აღარ უმჯობესდება.
 
-- training configuration;
-- epoch-level train loss;
-- validation WMAE;
-- seasonal naive benchmark;
-- improvement vs seasonal naive;
-- validation prediction table;
-- actual-vs-prediction scatter plot;
-- model checkpoint artifact;
-- summary JSON.
+9. W&B/artifacts  
+   W&B-ზე ილოგება config, epoch metrics, validation WMAE, improvement percentages, prediction table, scatter plot, checkpoint და summary JSON.
 
-ეს მნიშვნელოვანია იმიტომ, რომ შემდეგ ექსპერიმენტებში ყველა ცვლილებას შევადარებთ არა მხოლოდ final WMAE-ით, არამედ train/validation behavior-ითაც.
+## შედეგები
 
-## baseline შედეგი
+| Run | Input | დამატება | Best epoch | Validation WMAE | vs seasonal naive | vs previous |
+|---|---:|---|---:|---:|---:|---:|
+| Seasonal naive | 52w lookup | იგივე კვირა 1 წლით ადრე | — | 1604.27 | — | — |
+| Baseline | 52w | pure DLinear | 8 | 1523.21 | +5.05% | — |
+| v1 | 52w | Store-Dept calibration | 11 | 1506.28 | +6.11% | +1.11% |
+| v2 | 65w | calendar branch | 36 | 1961.45 | -22.27% | -30.22% |
 
-39-კვირიან validation split-ზე მივიღეთ:
+შენიშვნა: v1-ის იდეა იყო უფრო გრძელი context, მაგრამ რეალურად 104-week context ამ split-ზე შეუძლებელია training windows-ისთვის: pre-validation history არის 104 კვირა, ხოლო target horizon არის 39 კვირა. საჭიროა `input_weeks + 39 <= 104`. ამიტომ working v1 უნდა ჩაითვალოს როგორც 52-week DLinear + Store-Dept calibration.
 
-| მოდელი | Validation WMAE | შენიშვნა |
-|---|---:|---|
-| Seasonal naive | 1604.27 | იგივე Store-Dept გაყიდვა 52 კვირით ადრე |
-| DLinear baseline | 1523.21 | best epoch = 8 |
+## Train setup, რომელიც ყველა run-ში ერთნაირია
 
-DLinear baseline-მა seasonal naive-ს მოუგო დაახლოებით 5.05%-ით.
+ყველა DLinear run-ში ერთი და იგივე evaluation protocol გვაქვს:
 
-ეს ნიშნავს, რომ მოდელმა რაღაც სასარგებლო pattern ნამდვილად ისწავლა, მაგრამ improvement ჯერ ზომიერია. ეს ნორმალურია baseline-ისთვის, რადგან მოდელი არ იყენებს:
+- validation: ბოლო 39 კვირა `train.csv`-დან;
+- target horizon: 39 კვირა;
+- metric: WMAE original sales scale-ზე;
+- holiday weight: `5.0`;
+- non-holiday weight: `1.0`;
+- Store-Dept სერიების რაოდენობა: `3331`;
+- seasonal naive reference: იგივე Store-Dept გაყიდვა 52 კვირით ადრე;
+- W&B-ში ილოგება: `train/normalized_wmae_loss`, `validation/normalized_wmae_loss`, `validation/wmae`, improvement percentages, learning rate, prediction table, scatter plot, checkpoint, summary JSON.
 
-- store/dept embeddings-ს;
-- markdown/promotion features-ს;
-- economic covariates-ს;
-- calendar features-ს;
-- hyperparameter tuning-ს;
-- model ensembling-ს.
+Data flow notebook-ში ასეთია:
 
-## baseline notebook-ის კოდის სტრუქტურა
+```text
+train.csv
+→ sort by Store/Dept/Date
+→ pivot Store-Dept × Date panel
+→ split: fit dates + last 39 validation dates
+→ WindowDataset / ValidationDataset
+→ DLinear model
+→ evaluate_model()
+→ W&B metrics + artifacts
+```
 
-`baseline_dlinear.ipynb` აგებულია ასეთი თანმიმდევრობით:
+## Baseline
 
-1. setup/import/config
+ფაილი: `baseline_dlinear.ipynb`
 
-   პირველ უჯრებში ხდება Colab-ისთვის საჭირო package-ების დაყენება, random seed-ის დაფიქსირება, GPU/CPU device-ის არჩევა და ძირითადი configuration-ის აღწერა. აქვეა მითითებული `validation_weeks=39`, `input_weeks=52`, W&B project/entity და Drive-ის data path.
+Baseline-ში model input არის მხოლოდ past sales:
 
-2. data loading და weekly panel
+```text
+past 52 Weekly_Sales
+→ per-window normalization
+→ DLinear
+→ 39-week forecast
+```
 
-   `train.csv` და `test.csv` იტვირთება Drive-იდან. შემდეგ `train.csv` გარდაიქმნება Store-Dept weekly panel-ად, სადაც row არის კონკრეტული `(Store, Dept)` სერია, column კი კონკრეტული კვირა. DLinear-ს fixed-length sequence სჭირდება, ამიტომ ეს panel არის მთავარი input ფორმატი.
+`IsHoliday` baseline-ში model feature არ არის. ის გამოიყენება მხოლოდ WMAE loss/metric weights-ში. შედეგი: `1523.21` WMAE, რაც seasonal naive-ზე 5.05%-ით უკეთესია. ეს ადასტურებს, რომ DLinear historical sequence-დან სასარგებლო pattern-ს სწავლობს.
 
-3. metric
+## v1: Store-Dept calibration
 
-   `wmae()` ფუნქცია ითვლის Kaggle-ის weighted MAE-ს. holiday კვირებს ენიჭება weight 5, სხვა კვირებს weight 1. იგივე weighting გამოიყენება training loss-ისთვისაც, რომ მოდელი იმავე objective-ს მიუახლოვდეს, რითაც საბოლოოდ ფასდება.
+ფაილი: `model_experiment_DLinear.ipynb`
 
-4. dataset classes
+v1-ის მიზანი იყო გაგვერკვია: თუ DLinear-ს დავუმატებთ კონკრეტული Store-Dept სერიის bias correction-ს, historical sequence baseline გაუმჯობესდება თუ არა.
 
-   `WindowDataset` ქმნის training examples-ს sliding window პრინციპით. თითოეულ example-ში გვაქვს:
+### v1 config/logs
 
-   - `x`: წარსული 52 კვირა;
-   - `y`: შემდეგი 39 კვირა;
-   - `weights`: holiday-aware WMAE weights;
-   - `mean/std`: თითოეული window-ის normalization-ისთვის.
+| ველი | მნიშვნელობა |
+|---|---:|
+| `validation_weeks` | `39` |
+| effective `input_weeks` | `52` |
+| `batch_size` | `512` |
+| `learning_rate` | `8e-4` |
+| `weight_decay` | `2e-4` |
+| `series_bias_weight_decay` | `1e-3` |
+| `moving_avg_kernel` | `25` |
+| training windows | `46634` |
+| validation series | `3331` |
+| seasonal naive WMAE | `1604.27` |
+| best epoch | `11` |
+| early stopping | epoch `23` |
+| best validation WMAE | `1506.28` |
 
-   `ValidationDataset` ქმნის მხოლოდ ერთ validation example-ს თითო Store-Dept სერიისთვის: ბოლო 52 კვირა validation-მდე და target-ად ბოლო 39 კვირა.
+best epoch-ის ძირითადი log:
 
-5. model classes
+```text
+epoch = 11
+train/normalized_wmae_loss = 2.3409955
+validation/normalized_wmae_loss = 0.6877526
+validation/wmae = 1506.2825
+validation/improvement_vs_seasonal_naive_pct = 6.1079
+improvement_vs_baseline_pct = 1.1113
+```
+
+### v1-ში რა feature/input გვქონდა
+
+Model feature-ები:
 
-   `MovingAverage` აგებს trend component-ს rolling average-ით.
-
-   `SeriesDecomposition` ყოფს sequence-ს ორ ნაწილად: seasonal/residual და trend.
-
-   `DLinear` ამ ორ ნაწილს ცალ-ცალკე linear layer-ით გადააგზავნის 39-კვირიან forecast horizon-ზე და ბოლოს აერთიანებს.
-
-6. training/evaluation
-
-   `weighted_mae_loss()` გამოიყენება training loss-ად normalized scale-ზე. `evaluate_model()` აბრუნებს პროგნოზს original sales scale-ზე და ითვლის validation WMAE-ს. training loop-ში არის early stopping და learning-rate scheduler.
-
-7. W&B logging/artifacts
-
-   W&B-ზე ინახება epoch-level metrics, validation prediction table, scatter plot, checkpoint და summary JSON. ეს გვაძლევს reproducible comparison-ს შემდეგ ექსპერიმენტებთან.
-
-## განსხვავება XGBoost-თან
-
-XGBoost-ის შემთხვევაში ძირითადი ძალა მოდიოდა feature engineering-იდან: calendar features, store/dept metadata, lag/aggregate features და სხვა tabular signal-ები. XGBoost პირდაპირ სწავლობს row-level დამოკიდებულებებს feature-ებზე.
-
-DLinear baseline განსხვავებული ტიპის მოდელია:
-
-- ის უყურებს Store-Dept-ის წარსულ sales sequence-ს;
-- არ იცის Store type, size, markdowns, CPI, fuel price და სხვა external feature-ები;
-- პროგნოზს აკეთებს direct multi-step ფორმით, ანუ ერთდროულად აბრუნებს 39 კვირას;
-- მისი “feature engineering” ძირითადად sequence construction და scaling-ია.
-
-ამიტომ DLinear-ის და XGBoost-ის რიცხვები პირდაპირ მხოლოდ მაშინ უნდა შევადაროთ, როცა split ერთნაირია. ჩვენი DLinear baseline არის 39-week validation-ზე, XGBoost-ის რამდენიმე შედეგი კი სხვა validation horizon-ზე იყო. მთავარი დასკვნა ამ ეტაპზე არის არა “რომელი ჯობია აბსოლუტურად”, არამედ:
-
-- XGBoost უკეთ იყენებს tabular/covariate ინფორმაციას;
-- DLinear უკვე მხოლოდ historical sales-ითაც აუმჯობესებს seasonal naive-ს;
-- DLinear-ის შემდეგი ლოგიკური განვითარება არის temporal model-ში identity/calendar/covariate signal-ის დამატება.
-
-## რას ველოდებით შემდეგი ექსპერიმენტებიდან
-
-baseline-მა აჩვენა, რომ direct 39-week DLinear approach მუშაობს, მაგრამ ჯერ ძალიან შეზღუდულია. შემდეგ ეტაპზე ვცდით მცირე, კონტროლირებულ ცვლილებებს:
-
-- უფრო გრძელი context window, მაგალითად 104 კვირა;
-- Store-Dept identity calibration;
-- უკეთესი normalization;
-- learning rate / regularization tuning;
-- შემდეგ ეტაპზე calendar და external covariates.
-
-ამ ცვლილებების მიზანი იქნება გავიგოთ, DLinear-ს აკლია მხოლოდ capacity/context თუ საჭიროა უკვე feature-rich temporal architecture.
-
-## experiment v1 — 104 კვირა + Store-Dept calibration
-
-ფაილი:
-
-`model_experiment_DLinear.ipynb`
-
-პირველი ექსპერიმენტის იდეა იყო baseline-ისგან მხოლოდ მცირე, კონტროლირებული ცვლილება:
-
-- input window გავზარდეთ 52 კვირიდან 104 კვირამდე;
-- DLinear core იგივე დავტოვეთ;
-- დავამატეთ Store-Dept-level calibration layer;
-- validation split და WMAE იგივე დარჩა.
-
-Store-Dept calibration ნიშნავს, რომ მოდელს აქვს პატარა learnable correction თითოეული სერიისთვის და თითოეული forecast horizon-ისთვის. ეს არ არის სრული store/dept embedding architecture; უფრო მარტივი bias adjustment-ია. ამით ვამოწმებთ, ეხმარება თუ არა მოდელს თითოეული სერიის ინდივიდუალური საშუალო/სისტემური გადახრის დაჭერა.
-
-### experiment v1 შედეგი
-
-| მოდელი | Validation WMAE | Improvement vs seasonal naive | Improvement vs DLinear baseline |
-|---|---:|---:|---:|
-| Seasonal naive | 1604.27 | — | — |
-| DLinear baseline, 52w | 1523.21 | 5.05% | — |
-| DLinear v1, 104w + calibration | 1506.28 | 6.11% | 1.11% |
-
-best epoch იყო `11`, early stopping მოხდა `23` epoch-ზე.
-
-### რას გვასწავლის v1
-
-v1-მა baseline გააუმჯობესა, მაგრამ გაუმჯობესება მცირეა. ეს სასარგებლო სიგნალია:
-
-- მარტო უფრო გრძელი context და series-level correction საკმარისი არ არის დიდი ნახტომისთვის;
-- DLinear historical sales pattern-ს უკეთ იყენებს, მაგრამ მას ჯერ არ აქვს future calendar/promotion/economic ინფორმაცია;
-- training loss ნელ-ნელა უმჯობესდებოდა, მაგრამ validation WMAE საუკეთესო იყო შედარებით ადრე, რაც მიუთითებს რომ მოდელი ადვილად იწყებს validation horizon-ზე ზედმეტად მორგებას.
-
-ამიტომ შემდეგი ლოგიკური ნაბიჯი არ არის ძალიან დიდი არქიტექტურის დამატება. ჯერ უნდა დავამატოთ მხოლოდ ის feature-ები, რომლებიც future-ში წინასწარ ცნობილია და leakage-ს არ ქმნის.
-
-## experiment v2 — known future calendar signal
-
-შემდეგი ვერსია, რომელსაც ახლა გავუშვებთ, იგივე `model_experiment_DLinear.ipynb`-შია განახლებული.
-
-v2 ამატებს მხოლოდ მარტივ calendar covariates-ს:
+- `Weekly_Sales` history: ბოლო 52 კვირა თითო Store-Dept სერიაზე;
+- `series_idx`: integer id თითოეული `(Store, Dept)` სერიისთვის;
+- per-window `mean/std`: normalization-ისთვის.
+
+Feature არ იყო:
+
+- `IsHoliday` როგორც model input;
+- week/month calendar;
+- markdowns;
+- CPI/Fuel/Unemployment;
+- Store type/size.
+
+`IsHoliday` მხოლოდ weights-ში გამოიყენებოდა:
+
+```text
+holiday week → weight 5
+normal week  → weight 1
+```
+
+### v1-ში როგორ დავამატეთ Store-Dept calibration
+
+Baseline DLinear აკეთებს:
+
+```text
+past sales → decomposition(trend, seasonal) → linear forecast → 39-week forecast
+```
+
+v1-ში დაემატა `series_bias`:
+
+```text
+series_idx → Embedding(n_series, pred_len)
+```
+
+ანუ თითო Store-Dept სერიას აქვს 39-ზომიანი learnable vector — თითო correction forecast horizon-ის თითო კვირისთვის.
+
+ლოგიკა:
+
+```text
+past sales → DLinear forecast
+series_idx → series_bias[series_idx]
+forecast = DLinear forecast + series_bias
+```
+
+რატომ: Walmart-ში Store-Dept სერიებს განსხვავებული scale და systematic bias აქვთ. per-window normalization scale-ს ამცირებს, მაგრამ კონკრეტული department/store-ის მუდმივ გადახრას სრულად ვერ იჭერს.
+
+### v1 result interpretation
+
+v1-მა baseline გააუმჯობესა:
+
+```text
+1523.21 → 1506.28
+absolute improvement = 16.93 WMAE
+relative improvement = 1.11%
+```
+
+ეს არ არის დიდი ნახტომი, მაგრამ სწორი signal-ია: Store-Dept identity correction ეხმარება. ამავე დროს, v1 მაინც მხოლოდ target history-ზე დგას, ამიტომ promotion/calendar/economic effects-ს ვერ ხედავს.
+
+## v2: calendar features
+
+v2-ის მიზანი იყო გაგვერკვია: known future calendar features გააუმჯობესებს თუ არა holiday/seasonal კვირების პროგნოზს.
+
+### v2 config/logs
+
+W&B run:
+
+https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/1e085ojw
+
+| ველი | მნიშვნელობა |
+|---|---:|
+| `validation_weeks` | `39` |
+| `input_weeks` | `65` |
+| `batch_size` | `512` |
+| `learning_rate` | `7e-4` |
+| `weight_decay` | `2e-4` |
+| `series_bias_weight_decay` | `1e-3` |
+| `calendar_weight_decay` | `1e-4` |
+| `moving_avg_kernel` | `25` |
+| training windows | `3331` |
+| validation series | `3331` |
+| seasonal naive WMAE | `1604.27` |
+| best epoch | `36` |
+| early stopping | epoch `50` |
+| best validation WMAE | `1961.45` |
+
+summary log:
+
+```text
+experiment = dlinear_v2_104w_series_calendar
+best_epoch = 36
+best_validation_wmae = 1961.4508
+baseline_dlinear_39w_wmae = 1523.2097
+dlinear_v1_104w_calibration_wmae = 1506.2825
+seasonal_naive_wmae = 1604.2697
+improvement_vs_v1_pct = -30.2180
+```
+
+ბოლო epoch-ების behavior:
+
+```text
+epoch 46 validation/wmae = 1962.99
+epoch 47 validation/wmae = 1963.99
+epoch 48 validation/wmae = 1963.63
+epoch 49 validation/wmae = 1963.18
+epoch 50 validation/wmae = 1963.96
+early stopping: best epoch 36
+```
+
+### v2-ში ზუსტად რა features დავამატეთ
+
+v2-ში DLinear-ს პირველად მივეცით future calendar covariates. თითო forecast კვირისთვის შეიქმნა 6 feature:
 
 - `IsHoliday`;
-- week-of-year sin/cos;
-- month sin/cos;
-- forecast horizon-ის normalized position.
+- `week_sin`, `week_cos`;
+- `month_sin`, `month_cos`;
+- `horizon_position`.
 
-ამ feature-ების გამოყენება უსაფრთხოა, რადგან test period-შიც წინასწარ ვიცით თარიღი და holiday flag. ეს არ არის full feature engineering, რადგან ჯერ არ ვიყენებთ markdowns, CPI, unemployment, fuel price, store size/type და სხვა tabular signal-ებს.
+feature construction:
 
-v2-ის მიზანია ვუპასუხოთ ერთ კონკრეტულ კითხვას:
+```text
+is_holiday = 0/1
+week_sin = sin(2π * ISO_week / 52)
+week_cos = cos(2π * ISO_week / 52)
+month_sin = sin(2π * month / 12)
+month_cos = cos(2π * month / 12)
+horizon_position = linear position inside available dates
+```
 
-თუ DLinear-ს მივცემთ future calendar context-ს, შეამცირებს თუ არა შეცდომას holiday და seasonal კვირებზე?
+რატომ sin/cos: week/month ციკლურია. მაგალითად week 52 და week 1 ერთმანეთთან ახლოსაა, მაგრამ უბრალო integer encoding-ით შორს გამოჩნდებოდა.
 
-თუ v2 მნიშვნელოვნად გაუმჯობესდება, შემდეგ ღირს უფრო მდიდარი covariates-ის დამატება. თუ გაუმჯობესება მცირე იქნება, მაშინ DLinear-ისთვის მთავარი შეზღუდვა შეიძლება იყოს არქიტექტურა ან ის, რომ Walmart-ის ამოცანაზე tabular tree-based models უკეთ იყენებენ ხელმისაწვდომ signal-ს.
+რატომ leakage-safe: ეს features ცნობილია prediction-მდე, რადგან მომავალ test dates და holiday flag უკვე გვაქვს `test.csv`-ში.
 
-## ამ ეტაპის დასკვნა
+### v2-ში როგორ დაემატა calendar branch
 
-DLinear baseline დასრულებულად ითვლება.
+Dataset-ში `future_calendar` დაემატა target window-ის იგივე თარიღებზე:
 
-მიღებული შედეგი საკმარისია როგორც baseline:
+```text
+target_positions = forecast weeks
+future_calendar = calendar_features[target_positions]
+```
 
-- გვაქვს leakage-safe 39-week validation;
-- გვაქვს WMAE, იგივე metric რაც Kaggle-ზე;
-- გვაქვს seasonal naive benchmark;
-- გვაქვს W&B run და artifacts;
-- გვაქვს reproducible notebook Colab-ისთვის.
+Model-ში calendar ნაწილი იყო small MLP:
 
-შემდეგი ფაილი არის experiment notebook, სადაც baseline-ს ეტაპობრივად ვაუმჯობესებთ და ყველა ახალი შედეგი დაემატება ამ README-ს.
+```text
+future_calendar[6]
+→ Linear(6, 16)
+→ ReLU
+→ Linear(16, 1)
+→ calendar_adjustment per forecast week
+```
+
+საბოლოო forecast:
+
+```text
+DLinear forecast
++ series_bias
++ calendar_adjustment
+```
+
+### v2 result interpretation
+
+v2 მკვეთრად გაუარესდა:
+
+```text
+v1: 1506.28
+v2: 1961.45
+change = -30.22% vs v1
+```
+
+ეს არ ნიშნავს, რომ calendar features ცუდია. უფრო სწორი დასკვნაა, რომ v2 implementation იყო ზედმეტად აგრესიული:
+
+1. `input_weeks=65`-მა training windows შეამცირა  
+   pre-validation history არის 104 კვირა. ფორმულა:
+
+   ```text
+   windows_per_series = 104 - input_weeks - 39 + 1
+   ```
+
+   v1/baseline-ში:
+
+   ```text
+   104 - 52 - 39 + 1 = 14 windows per series
+   14 * 3331 = 46634 train windows
+   ```
+
+   v2-ში:
+
+   ```text
+   104 - 65 - 39 + 1 = 1 window per series
+   1 * 3331 = 3331 train windows
+   ```
+
+   ანუ v2-ს ჰქონდა დაახლოებით 14-ჯერ ნაკლები training examples.
+
+2. `calendar_adjustment` პირდაპირ ემატებოდა forecast-ს  
+   calendar branch-ს არ ჰქონდა gate/scale control. ამიტომ model-ს შეეძლო calendar correction ზედმეტად გაეზარდა და დაეზიანებინა უკვე კარგი DLinear + series_bias forecast.
+
+3. train loss უმჯობესდებოდა, validation კი ცუდი იყო  
+   ეს მიუთითებს არა უბრალოდ undertraining-ზე, არამედ ცუდ generalization-ზე validation horizon-ზე.
+
+დასკვნა: v2 არის failed ablation, მაგრამ სასარგებლო. მან გვაჩვენა, რომ calendar signal უნდა დაემატოს კონტროლით და training-window რაოდენობა არ უნდა შევამციროთ.
+
+## შემდეგი v3
+
+შემდეგი notebook აბრუნებს working setup-ს:
+
+- `input_weeks=52`;
+- Store-Dept calibration რჩება;
+- calendar features რჩება;
+- calendar adjustment ემატება gated residual-ით, რომლის gate იწყება 0-დან.
+
+ლოგიკა:
+
+```text
+forecast = DLinear forecast + series_bias + tanh(calendar_gate) * calendar_adjustment
+```
+
+ამით model საწყისად ჰგავს v1-ს და calendar-ს იყენებს მხოლოდ თუ training-მა gate გაზარდა. v3-ის მიზანია შევამოწმოთ, calendar feature ცუდია თუ უბრალოდ v2-ში ზედმეტად დაუკონტროლებლად იყო დამატებული.
+
+## XGBoost-თან შედარება
+
+XGBoost იყენებს ძლიერ tabular feature engineering-ს: calendar, store/dept metadata, lags, aggregates და სხვა. DLinear ამ ეტაპზე ძირითადად sequence model-ია. ამიტომ XGBoost-ის უპირატესობა მოსალოდნელია, რადგან Walmart sales heavily depends on store/dept identity, holidays, markdowns და სხვა known/external signals.
+
+DLinear-ის ამ ეტაპის პროგრესი:
+
+- pure sequence baseline მუშაობს;
+- series calibration აუმჯობესებს;
+- naive calendar branch აზიანებს;
+- შემდეგი საჭირო ნაბიჯია controlled calendar ან richer covariates, მაგრამ აუცილებლად ablation-ებით.
