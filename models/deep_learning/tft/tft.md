@@ -83,3 +83,99 @@ Baseline feature set:
 - known future calendar reals: `time_idx`, week sine/cosine, month sine/cosine.
 
 External covariates (`features.csv`, `stores.csv`) ამ baseline-ში შეგნებულად არ არის დამატებული. ისინი უნდა დაემატოს შემდეგ TFT experiment-ში, baseline result-ის შემდეგ.
+
+## Baseline result
+
+Fast baseline წარმატებით გაეშვა და W&B logging/artifacts შეიქმნა.
+
+W&B run:
+
+https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/w43bg7sh
+
+Run setup:
+
+```text
+top_n_series = 300
+encoder_weeks = 26
+hidden_size = 8
+trainable params = 8.4K
+train_batches_total = 38
+validation_batches_total = 1
+max_epochs = 5
+```
+
+Validation result იმავე top-300 subset-ზე:
+
+```text
+seasonal_naive_wmae = 6026.29
+tft_baseline_wmae = 7801.90
+improvement_vs_seasonal_naive_pct = -29.46%
+best_val_loss = 7290.13
+best_checkpoint = epoch 3
+prediction_rows = 11700
+```
+
+Interpretation:
+
+- baseline-ის მთავარი მიზანი იყო runtime/logging/pipeline validation და არა final score;
+- model გაუშვა, checkpoint შეინახა, W&B-ზე metrics/plots/prediction table/artifact დალოგდა;
+- WMAE seasonal naive-ზე ბევრად უარესია, ამიტომ ეს baseline rejected როგორც predictive model;
+- პრობლემა მოსალოდნელია: ძალიან პატარა TFT, ცოტა training batches, მხოლოდ top-300 sample, და ჯერ external covariates არ გვაქვს.
+
+ამ ეტაპზე baseline დასრულებულია. საჭირო არ არის მის დამატებით tuning-ზე დროის დახარჯვა. შემდეგი სწორი ნაბიჯია v1 experiment, სადაც TFT-ს მივცემთ იმ known covariates-ს, რისთვისაც ეს architecture უკეთესად არის შექმნილი.
+
+## v1: external covariates
+
+ფაილი:
+
+```text
+model_experiment_TFT.ipynb
+```
+
+v1 baseline-ისგან განსხვავდება ასე:
+
+```text
+top_n_series: 300 → 500
+encoder_weeks: 26 → 39
+hidden_size: 8 → 16
+attention_head_size: 1 → 2
+hidden_continuous_size: 4 → 8
+max_epochs: 5 → 8
+max_time_minutes: 10 → 20
+limit_train_batches: 20 → 40
+```
+
+v1-ში დამატებული known/static features:
+
+```text
+features.csv:
+- Temperature
+- Fuel_Price
+- MarkDown1
+- MarkDown2
+- MarkDown3
+- MarkDown4
+- MarkDown5
+- CPI
+- Unemployment
+
+stores.csv:
+- Type
+- Size
+```
+
+Feature logic:
+
+- `MarkDown1-5` missing values ივსება `0.0`-ით, რადგან markdown-ის არარსებობა ხშირად ნიშნავს promotion value არ გვაქვს;
+- `Temperature`, `Fuel_Price`, `CPI`, `Unemployment` ივსება Store-level forward/backward fill-ით, შემდეგ median fallback-ით;
+- `Type` არის static categorical;
+- `Size` არის known/static real covariate;
+- target ისევ იჭრება `Weekly_Sales >= 0`, რომ non-finite/negative prediction პრობლემები შემცირდეს.
+
+v1-ის კითხვა:
+
+```text
+ეხმარება თუ არა TFT-ს external known covariates enough, რომ fast baseline-ზე და seasonal naive-ზე უკეთესი გახდეს?
+```
+
+თუ v1 მაინც seasonal naive-ზე უარესია, შემდეგი ნაბიჯი არ უნდა იყოს full-data expensive training. ჯერ უნდა შევცვალოთ target normalization/loss strategy ან sample/window strategy.
