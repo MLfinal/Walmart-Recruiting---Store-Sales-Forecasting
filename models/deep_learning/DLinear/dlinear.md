@@ -969,3 +969,136 @@ Colab-ისთვის tuning loop განზრახ მსუბუქი
 - W&B-ზე აღარ იქმნება ცალკე run თითო trial-ზე, ილოგება ერთი tuning run და trial summary table.
 
 თუ tuning-მა v1-ს აჯობა, inference გაკეთდება tuned checkpoint-ით. თუ tuning ვერ აჯობებს, inference გაკეთდება v1 checkpoint/artifact-ით.
+
+### tuning results
+
+W&B tuning run:
+
+https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/gh0dvxo2
+
+Best tuned artifact logging run:
+
+https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/4jlq0kyc
+
+Optuna-მ გაუშვა `8` trial. საუკეთესო trial იყო `0`.
+
+Best tuning result:
+
+```text
+best_validation_wmae = 1508.9519
+manual_v1_wmae = 1506.2825
+improvement_vs_manual_v1_pct = -0.1772
+```
+
+Best hyperparameters:
+
+```text
+input_weeks = 52
+batch_size = 512
+learning_rate = 0.00036199292763563996
+weight_decay = 0.00007705594012729586
+series_bias_weight_decay = 0.00012551115172973836
+moving_avg_kernel = 13
+best_epoch = 15
+```
+
+Trial ranking:
+
+| trial | WMAE | input | batch | lr | moving avg | state |
+|---:|---:|---:|---:|---:|---:|---|
+| 0 | 1508.95 | 52 | 512 | 0.000362 | 13 | complete |
+| 1 | 1509.71 | 52 | 512 | 0.000373 | 13 | complete |
+| 4 | 1553.09 | 52 | 1024 | 0.000410 | 25 | pruned |
+| 2 | 1584.46 | 39 | 1024 | 0.000520 | 25 | complete |
+
+Interpretation:
+
+- tuning-მ v1-ს ვერ აჯობა;
+- საუკეთესო tuned run ძალიან ახლოსაა v1-თან, მაგრამ validation-ზე მაინც `0.18%`-ით სუსტია;
+- `input_weeks=52` ისევ დადასტურდა როგორც უკეთესი არჩევანი, ვიდრე `39`;
+- `moving_avg_kernel=13` tuning-ში უკეთესი იყო, მაგრამ მთლიან შედეგში v1-ის original setup მაინც ძლიერია.
+
+Final DLinear model choice:
+
+```text
+best overall = manual v1
+WMAE = 1506.28
+```
+
+Inference default იქნება manual v1 artifact-ზე. tuned artifact დარჩება fallback/comparison option-ად.
+
+## Inference notebook
+
+Final inference ფაილი:
+
+```text
+models/deep_learning/DLinear/dlinear_inference.ipynb
+```
+
+Inference იყენებს არა ბოლო trained run-ს, არამედ საუკეთესო validation model-ს:
+
+```text
+selected model = manual v1
+architecture = DLinear + Store-Dept series_bias
+validation WMAE = 1506.28
+```
+
+რატომ არა tuned model:
+
+```text
+tuned best WMAE = 1508.95
+manual v1 WMAE = 1506.28
+```
+
+Tuning-ის საუკეთესო hyperparameters იყო:
+
+```text
+input_weeks = 52
+batch_size = 512
+learning_rate = 0.00036199292763563996
+weight_decay = 0.00007705594012729586
+series_bias_weight_decay = 0.00012551115172973836
+moving_avg_kernel = 13
+best_epoch = 15
+```
+
+მაგრამ ამ configuration-მა v1-ს ვერ აჯობა, ამიტომ final inference default რჩება `manual_v1`.
+
+Notebook-ის flow:
+
+1. packages/install + Drive mount;
+2. config-ში ირჩევა `model_choice = "manual_v1"` ან `"tuned_best"`;
+3. W&B run იწყება `job_type="dlinear_inference"`;
+4. notebook W&B artifact-იდან ტვირთავს selected checkpoint-ს;
+5. checkpoint-იდან იღებს `series_index`, model weights-ს და train config-ს;
+6. `input_weeks` და `pred_len` აღდგება weight tensor shape-ებიდან, რომ ძველ 104w naming/config confusion-მა inference არ გატეხოს;
+7. `train.csv`-დან იქმნება Store-Dept sales panel;
+8. ბოლო `input_weeks` კვირა ნორმალიზდება თითო series-ზე;
+9. model აკეთებს test horizon forecast-ს;
+10. prediction იჭრება `>= 0`, რადგან negative weekly sales submission-ისთვის ცუდი სიგნალია;
+11. იქმნება Kaggle submission csv;
+12. W&B-ზე ილოგება inference metrics, preview table, histogram, submission artifact და manifest;
+13. selected model artifact ლინკდება W&B Model Registry-ში, რომ final inference model ცალკე გამოჩნდეს.
+
+Inference W&B-ზე ლოგავს:
+
+- selected model artifact URI;
+- checkpoint path/name;
+- `input_weeks`, `pred_len`, `moving_avg_kernel`;
+- number of Store-Dept series;
+- submission row count;
+- missing predictions count;
+- prediction min/mean/max;
+- submission preview table;
+- prediction distribution histogram;
+- submission csv artifact;
+- inference manifest json;
+- model registry link, თუ W&B permission/registry path სწორია.
+
+Final expectation:
+
+```text
+Experiment phase: finished
+Best DLinear: manual v1
+Next DLinear step: run dlinear_inference.ipynb on Colab and check W&B inference run/artifacts
+```
