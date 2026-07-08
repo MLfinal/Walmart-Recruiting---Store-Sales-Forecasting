@@ -2,7 +2,7 @@
 
 ეს ფოლდერი არის DLinear მოდელის სამუშაო სივრცე Walmart-ის weekly sales forecasting ამოცანაზე.
 
-ამ ეტაპზე დასრულებულია მხოლოდ baseline. შემდეგი ექსპერიმენტები დაემატება იგივე დოკუმენტში, რომ საბოლოოდ გვქონდეს ერთი თანმიმდევრული ისტორია: საიდან დავიწყეთ, რა შევცვალეთ, რა შედეგი მივიღეთ და რატომ.
+ამ ეტაპზე დასრულებულია baseline და პირველი მცირე ექსპერიმენტი. შემდეგი ექსპერიმენტები დაემატება იგივე დოკუმენტში, რომ საბოლოოდ გვქონდეს ერთი თანმიმდევრული ისტორია: საიდან დავიწყეთ, რა შევცვალეთ, რა შედეგი მივიღეთ და რატომ.
 
 ## რატომ DLinear
 
@@ -73,6 +73,49 @@ DLinear baseline-მა seasonal naive-ს მოუგო დაახლოე
 - hyperparameter tuning-ს;
 - model ensembling-ს.
 
+## baseline notebook-ის კოდის სტრუქტურა
+
+`baseline_dlinear.ipynb` აგებულია ასეთი თანმიმდევრობით:
+
+1. setup/import/config
+
+   პირველ უჯრებში ხდება Colab-ისთვის საჭირო package-ების დაყენება, random seed-ის დაფიქსირება, GPU/CPU device-ის არჩევა და ძირითადი configuration-ის აღწერა. აქვეა მითითებული `validation_weeks=39`, `input_weeks=52`, W&B project/entity და Drive-ის data path.
+
+2. data loading და weekly panel
+
+   `train.csv` და `test.csv` იტვირთება Drive-იდან. შემდეგ `train.csv` გარდაიქმნება Store-Dept weekly panel-ად, სადაც row არის კონკრეტული `(Store, Dept)` სერია, column კი კონკრეტული კვირა. DLinear-ს fixed-length sequence სჭირდება, ამიტომ ეს panel არის მთავარი input ფორმატი.
+
+3. metric
+
+   `wmae()` ფუნქცია ითვლის Kaggle-ის weighted MAE-ს. holiday კვირებს ენიჭება weight 5, სხვა კვირებს weight 1. იგივე weighting გამოიყენება training loss-ისთვისაც, რომ მოდელი იმავე objective-ს მიუახლოვდეს, რითაც საბოლოოდ ფასდება.
+
+4. dataset classes
+
+   `WindowDataset` ქმნის training examples-ს sliding window პრინციპით. თითოეულ example-ში გვაქვს:
+
+   - `x`: წარსული 52 კვირა;
+   - `y`: შემდეგი 39 კვირა;
+   - `weights`: holiday-aware WMAE weights;
+   - `mean/std`: თითოეული window-ის normalization-ისთვის.
+
+   `ValidationDataset` ქმნის მხოლოდ ერთ validation example-ს თითო Store-Dept სერიისთვის: ბოლო 52 კვირა validation-მდე და target-ად ბოლო 39 კვირა.
+
+5. model classes
+
+   `MovingAverage` აგებს trend component-ს rolling average-ით.
+
+   `SeriesDecomposition` ყოფს sequence-ს ორ ნაწილად: seasonal/residual და trend.
+
+   `DLinear` ამ ორ ნაწილს ცალ-ცალკე linear layer-ით გადააგზავნის 39-კვირიან forecast horizon-ზე და ბოლოს აერთიანებს.
+
+6. training/evaluation
+
+   `weighted_mae_loss()` გამოიყენება training loss-ად normalized scale-ზე. `evaluate_model()` აბრუნებს პროგნოზს original sales scale-ზე და ითვლის validation WMAE-ს. training loop-ში არის early stopping და learning-rate scheduler.
+
+7. W&B logging/artifacts
+
+   W&B-ზე ინახება epoch-level metrics, validation prediction table, scatter plot, checkpoint და summary JSON. ეს გვაძლევს reproducible comparison-ს შემდეგ ექსპერიმენტებთან.
+
 ## განსხვავება XGBoost-თან
 
 XGBoost-ის შემთხვევაში ძირითადი ძალა მოდიოდა feature engineering-იდან: calendar features, store/dept metadata, lag/aggregate features და სხვა tabular signal-ები. XGBoost პირდაპირ სწავლობს row-level დამოკიდებულებებს feature-ებზე.
@@ -102,6 +145,60 @@ baseline-მა აჩვენა, რომ direct 39-week DLinear approach �
 
 ამ ცვლილებების მიზანი იქნება გავიგოთ, DLinear-ს აკლია მხოლოდ capacity/context თუ საჭიროა უკვე feature-rich temporal architecture.
 
+## experiment v1 — 104 კვირა + Store-Dept calibration
+
+ფაილი:
+
+`model_experiment_DLinear.ipynb`
+
+პირველი ექსპერიმენტის იდეა იყო baseline-ისგან მხოლოდ მცირე, კონტროლირებული ცვლილება:
+
+- input window გავზარდეთ 52 კვირიდან 104 კვირამდე;
+- DLinear core იგივე დავტოვეთ;
+- დავამატეთ Store-Dept-level calibration layer;
+- validation split და WMAE იგივე დარჩა.
+
+Store-Dept calibration ნიშნავს, რომ მოდელს აქვს პატარა learnable correction თითოეული სერიისთვის და თითოეული forecast horizon-ისთვის. ეს არ არის სრული store/dept embedding architecture; უფრო მარტივი bias adjustment-ია. ამით ვამოწმებთ, ეხმარება თუ არა მოდელს თითოეული სერიის ინდივიდუალური საშუალო/სისტემური გადახრის დაჭერა.
+
+### experiment v1 შედეგი
+
+| მოდელი | Validation WMAE | Improvement vs seasonal naive | Improvement vs DLinear baseline |
+|---|---:|---:|---:|
+| Seasonal naive | 1604.27 | — | — |
+| DLinear baseline, 52w | 1523.21 | 5.05% | — |
+| DLinear v1, 104w + calibration | 1506.28 | 6.11% | 1.11% |
+
+best epoch იყო `11`, early stopping მოხდა `23` epoch-ზე.
+
+### რას გვასწავლის v1
+
+v1-მა baseline გააუმჯობესა, მაგრამ გაუმჯობესება მცირეა. ეს სასარგებლო სიგნალია:
+
+- მარტო უფრო გრძელი context და series-level correction საკმარისი არ არის დიდი ნახტომისთვის;
+- DLinear historical sales pattern-ს უკეთ იყენებს, მაგრამ მას ჯერ არ აქვს future calendar/promotion/economic ინფორმაცია;
+- training loss ნელ-ნელა უმჯობესდებოდა, მაგრამ validation WMAE საუკეთესო იყო შედარებით ადრე, რაც მიუთითებს რომ მოდელი ადვილად იწყებს validation horizon-ზე ზედმეტად მორგებას.
+
+ამიტომ შემდეგი ლოგიკური ნაბიჯი არ არის ძალიან დიდი არქიტექტურის დამატება. ჯერ უნდა დავამატოთ მხოლოდ ის feature-ები, რომლებიც future-ში წინასწარ ცნობილია და leakage-ს არ ქმნის.
+
+## experiment v2 — known future calendar signal
+
+შემდეგი ვერსია, რომელსაც ახლა გავუშვებთ, იგივე `model_experiment_DLinear.ipynb`-შია განახლებული.
+
+v2 ამატებს მხოლოდ მარტივ calendar covariates-ს:
+
+- `IsHoliday`;
+- week-of-year sin/cos;
+- month sin/cos;
+- forecast horizon-ის normalized position.
+
+ამ feature-ების გამოყენება უსაფრთხოა, რადგან test period-შიც წინასწარ ვიცით თარიღი და holiday flag. ეს არ არის full feature engineering, რადგან ჯერ არ ვიყენებთ markdowns, CPI, unemployment, fuel price, store size/type და სხვა tabular signal-ებს.
+
+v2-ის მიზანია ვუპასუხოთ ერთ კონკრეტულ კითხვას:
+
+თუ DLinear-ს მივცემთ future calendar context-ს, შეამცირებს თუ არა შეცდომას holiday და seasonal კვირებზე?
+
+თუ v2 მნიშვნელოვნად გაუმჯობესდება, შემდეგ ღირს უფრო მდიდარი covariates-ის დამატება. თუ გაუმჯობესება მცირე იქნება, მაშინ DLinear-ისთვის მთავარი შეზღუდვა შეიძლება იყოს არქიტექტურა ან ის, რომ Walmart-ის ამოცანაზე tabular tree-based models უკეთ იყენებენ ხელმისაწვდომ signal-ს.
+
 ## ამ ეტაპის დასკვნა
 
 DLinear baseline დასრულებულად ითვლება.
@@ -114,4 +211,4 @@ DLinear baseline დასრულებულად ითვლება.
 - გვაქვს W&B run და artifacts;
 - გვაქვს reproducible notebook Colab-ისთვის.
 
-შემდეგი ფაილი უკვე არის experiment notebook, სადაც baseline-ს ეტაპობრივად გავაუმჯობესებთ და ყველა ახალი შედეგი დაემატება ამ README-ს.
+შემდეგი ფაილი არის experiment notebook, სადაც baseline-ს ეტაპობრივად ვაუმჯობესებთ და ყველა ახალი შედეგი დაემატება ამ README-ს.
