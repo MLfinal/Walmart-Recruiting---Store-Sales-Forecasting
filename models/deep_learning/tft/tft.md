@@ -179,3 +179,100 @@ v1-ის კითხვა:
 ```
 
 თუ v1 მაინც seasonal naive-ზე უარესია, შემდეგი ნაბიჯი არ უნდა იყოს full-data expensive training. ჯერ უნდა შევცვალოთ target normalization/loss strategy ან sample/window strategy.
+
+### v1 result
+
+v1 წარმატებით გაეშვა და W&B/artifacts შეინახა.
+
+Run setup:
+
+```text
+top_n_series = 500
+encoder_weeks = 39
+hidden_size = 16
+attention_head_size = 2
+trainable params = 41.1K
+train_batches_total = 65
+effective_train_batches_per_epoch = 40
+validation_batches_total = 1
+max_epochs = 8
+best_checkpoint = epoch 7
+best_val_loss = 5841.39
+```
+
+Validation result იმავე top-500 subset-ზე:
+
+```text
+seasonal_naive_wmae = 4969.77
+tft_v1_wmae = 6200.95
+improvement_vs_seasonal_naive_pct = -24.77%
+prediction_rows = 19500
+```
+
+Interpretation:
+
+- v1 baseline-ზე უკეთესია: `7801.90 → 6200.95`;
+- external covariates-მა აშკარად დაეხმარა, მაგრამ seasonal naive-ს მაინც ვერ აჯობა;
+- TFT ჯერ კიდევ ვერ სწავლობს საკმარისად კარგ absolute sales scale-ს;
+- რადგან v1 top-500 subset-ზეც seasonal naive-ზე უარესია, full-data expensive training ჯერ არ არის გამართლებული.
+
+## v2: log target strategy
+
+ფაილი:
+
+```text
+model_experiment_TFT_v2.ipynb
+```
+
+v2-ის მიზანია არა ახალი covariates დამატება, არამედ target/training stability-ის გამოსწორება.
+
+v1 raw target-ზე სწავლობდა:
+
+```text
+target = Weekly_Sales
+```
+
+v2 სწავლობს log-transformed target-ზე:
+
+```text
+target = SalesLog = log1p(max(Weekly_Sales, 0))
+```
+
+შემდეგ validation prediction ბრუნდება original scale-ზე:
+
+```text
+prediction = expm1(prediction_log)
+prediction = clip(prediction, lower=0)
+```
+
+WMAE ისევ ითვლება original `Weekly_Sales` scale-ზე, ამიტომ metric რჩება Kaggle-compatible.
+
+v2 keeps:
+
+```text
+top_n_series = 500
+encoder_weeks = 39
+features.csv covariates
+stores.csv covariates
+same 39-week validation
+```
+
+v2 changes:
+
+```text
+target strategy: raw sales → log1p sales
+max_epochs: 8 → 10
+limit_train_batches: 40 → 50
+max_time_minutes: 20 → 25
+```
+
+v2-ის კითხვა:
+
+```text
+თუ target scale უფრო სტაბილური გახდა, შეძლებს თუ არა TFT seasonal naive-სთან მიახლოებას ან მის გადასწრებას?
+```
+
+Decision rule:
+
+- თუ v2 ისევ seasonal naive-ზე უარესია, შემდეგი ნაბიჯი უნდა იყოს sample/window strategy ან TFT-ის შეჩერება;
+- თუ v2 v1-ს ძლიერად აჯობებს, შემდეგ v3-ში შეიძლება top series count/training budget გავზარდოთ.
