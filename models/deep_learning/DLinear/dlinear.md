@@ -57,6 +57,7 @@ DLinear არის მარტივი deep learning time-series მოდ�
 | v1 | 52w | Store-Dept calibration | 11 | 1506.28 | +6.11% | +1.11% |
 | v2 | 65w | free calendar branch | 36 | 1961.45 | -22.27% | -30.22% |
 | v3 | 52w | gated calendar branch | 10 | 1511.97 | +5.75% | +22.92% vs v2 |
+| v4 | 52w | Store/Dept embeddings | 7 | 1542.83 | +3.83% | -2.43% vs v1 |
 
 შენიშვნა: v1-ის იდეა იყო უფრო გრძელი context, მაგრამ რეალურად 104-week context ამ split-ზე შეუძლებელია training windows-ისთვის: pre-validation history არის 104 კვირა, ხოლო target horizon არის 39 კვირა. საჭიროა `input_weeks + 39 <= 104`. ამიტომ working v1 უნდა ჩაითვალოს როგორც 52-week DLinear + Store-Dept calibration.
 
@@ -560,9 +561,13 @@ DLinear-ის ამ ეტაპის პროგრესი:
 - naive calendar branch აზიანებს;
 - შემდეგი საჭირო ნაბიჯია controlled calendar ან richer covariates, მაგრამ აუცილებლად ablation-ებით.
 
-## შემდეგი v4: Store/Dept embeddings
+## v4: Store/Dept embeddings
 
 v4-ში calendar features დროებით ამოვიღეთ, რადგან v3-მ v1 ვერ აჯობა. ვტესტავთ იმ მიმართულებას, რომელმაც უკვე გაამართლა: identity signal.
+
+W&B run:
+
+https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/la5ta7ky
 
 v4 architecture:
 
@@ -597,3 +602,99 @@ v4-ის კითხვა:
 ```
 
 თუ v4 აჯობებს v1-ს (`1506.28`), identity modeling არის სწორი გზა. თუ ვერ აჯობებს, მაშინ შემდეგი ძლიერი ნაბიჯი იქნება hyperparameter tuning v1/v4-ზე.
+
+### v4 config/logs
+
+| ველი | მნიშვნელობა |
+|---|---:|
+| `validation_weeks` | `39` |
+| `input_weeks` | `52` |
+| `batch_size` | `512` |
+| `learning_rate` | `6e-4` |
+| `weight_decay` | `2e-4` |
+| `series_bias_weight_decay` | `1e-3` |
+| `identity_weight_decay` | `1e-4` |
+| `store_embedding_dim` | `8` |
+| `dept_embedding_dim` | `12` |
+| `identity_hidden_dim` | `32` |
+| stores | `45` |
+| depts | `81` |
+| total training windows | `46634` |
+| validation series | `3331` |
+| best epoch | `7` |
+| early stopping | epoch `21` |
+| best validation WMAE | `1542.83` |
+
+best epoch-ის log:
+
+```text
+epoch = 7
+train/normalized_wmae_loss = 2.3371136
+validation/normalized_wmae_loss = 0.6916478
+validation/wmae = 1542.8344
+validation/improvement_vs_seasonal_naive_pct = 3.8295
+validation/improvement_vs_baseline_pct = -1.2884
+validation/improvement_vs_v1_pct = -2.4266
+learning_rate = 0.0006
+```
+
+Run summary:
+
+```text
+best_epoch = 7
+best_validation_wmae = 1542.83435
+baseline_dlinear_39w_wmae = 1523.20972
+dlinear_v1_calibration_wmae = 1506.28247
+dlinear_v3_gated_calendar_wmae = 1511.97327
+best_improvement_vs_v1_pct = -2.42663
+```
+
+### v4 result interpretation
+
+v4 გაუარესდა:
+
+```text
+v1: 1506.28
+v4: 1542.83
+difference = -2.43% vs v1
+```
+
+ასევე v4 baseline-ზეც უარესია:
+
+```text
+baseline: 1523.21
+v4: 1542.83
+```
+
+ეს ნიშნავს, რომ separate Store/Dept embedding MLP ამ ფორმით არ დაეხმარა. სავარაუდო მიზეზები:
+
+- `series_bias` უკვე იჭერს Store-Dept identity correction-ს პირდაპირ;
+- Store/Dept embedding MLP ამატებს capacity-ს, მაგრამ validation-ზე generalization არ გაუმჯობესდა;
+- train loss მცირდებოდა, validation კი საუკეთესო იყო ადრე, epoch 7-ზე, რის შემდეგაც validation WMAE გაუარესდა;
+- Store/Dept decomposition შეიძლება ზედმეტად უხეშია, რადგან Walmart-ში კონკრეტული Store-Dept pair უფრო მნიშვნელოვანია, ვიდრე Store და Dept ცალ-ცალკე.
+
+დასკვნა: v4 rejected. საუკეთესო architecture კვლავ v1 რჩება.
+
+## შემდეგი v5: v1 refinement
+
+რადგან v2/v3/v4 feature branches-მა v1 ვერ აჯობა, v5 აღარ ამატებს ახალ features-ს. v5 აბრუნებს საუკეთესო იდეას:
+
+```text
+DLinear + Store-Dept series_bias
+```
+
+და ცდის უფრო ფრთხილ training setup-ს:
+
+- calendar features არ არის;
+- Store/Dept embeddings არ არის;
+- `input_weeks=52`;
+- `series_bias` რჩება;
+- learning rate მცირდება `8e-4 → 5e-4`;
+- patience იზრდება, რომ training-ს მეტი შანსი ჰქონდეს;
+- scheduler რჩება.
+
+v5-ის კითხვა:
+
+```text
+შეგვიძლია თუ არა v1-ს ვაჯობოთ არა ახალი feature-ით, არამედ უფრო სტაბილური optimization-ით?
+```
