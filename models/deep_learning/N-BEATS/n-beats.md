@@ -484,7 +484,7 @@ weight_decay  = 1e-6 ... 1e-3, log scale
 Trial-ების რაოდენობა notebook-ში არის:
 
 ```text
-OPTUNA_N_TRIALS = 25
+OPTUNA_N_TRIALS = 8
 ```
 
 ფიქსირებული პარამეტრები:
@@ -492,8 +492,8 @@ OPTUNA_N_TRIALS = 25
 ```text
 num_blocks = 4
 num_layers = 4
-max_epochs = 100
-early_stopping_patience = 8
+max_epochs = 20
+early_stopping_patience = 4
 ```
 
 Early stopping დაემატა იმიტომ, რომ წინა ყველა ექსპერიმენტში საუკეთესო validation შედეგი ადრეულ epoch-ებზე მიიღებოდა. 100 epoch-მდე სწავლა ხშირად აღარ აუმჯობესებდა validation WMAE-ს.
@@ -522,3 +522,100 @@ target: best Optuna WMAE < 2157.9829
 ```
 
 შედეგი ჯერ გასაშვებია.
+
+### Model Registry და inference flow
+
+დავალების მოთხოვნის მიხედვით N-BEATS-ის საუკეთესო მოდელი უნდა შეინახოს pipeline-ად და inference დროს ჩაიტვირთოს W&B Model Registry-დან.
+
+ამიტომ რეგისტრაციის ლოგიკა დაემატა:
+
+```text
+model_experiment_N-BEATS.ipynb
+```
+
+ამ notebook-ში Optuna tuning-ის შემდეგ ხდება სწორი model selection:
+
+- თუ Optuna-ს საუკეთესო trial baseline-ს აჯობებს, რეგისტრირდება Optuna-ს საუკეთესო trial;
+- თუ Optuna baseline-ს ვერ აჯობებს, რეგისტრირდება baseline configuration, რადგან ამ არქიტექტურის საუკეთესო შედეგი baseline-მა აჩვენა.
+
+ეს მნიშვნელოვანია, რადგან ამჟამინდელი შედეგებით baseline არის საუკეთესო N-BEATS მოდელი:
+
+```text
+Baseline best WMAE = 2157.9829
+Best partial Optuna WMAE = 2191.4117
+```
+
+ანუ baseline უკეთესია. ამიტომ registry-ში არ უნდა მოხვდეს სუსტი Optuna candidate, თუ მან baseline ვერ გადალახა.
+
+არჩეული მოდელი იფუთება raw-input pipeline-ად:
+
+```text
+walmart_nbeats_raw_pipeline.pkl
+```
+
+Pipeline ინახავს:
+
+- trained N-BEATS model weights;
+- საუკეთესო trial-ის hyperparameters;
+- per-series normalization statistics;
+- Store-Dept historical sales matrix;
+- forecasting logic-ს, რომელიც raw `test.csv` rows-ზე პირდაპირ მუშაობს.
+
+Pipeline-ის prediction interface არის:
+
+```python
+pipeline.predict(raw_test_df)
+```
+
+ანუ inference notebook-ში feature engineering ხელახლა არ უნდა დაიწეროს. Pipeline თვითონ აკეთებს საჭირო preprocessing/forecasting logic-ს.
+
+W&B Registry target:
+
+```text
+wandb-registry-model/Walmart_NBEATS_Pipeline
+```
+
+Aliases:
+
+- `best-nbeats`
+- `latest`
+- `champion`, თუ არჩეულმა მოდელმა baseline reference-ს აჯობა;
+- `candidate`, თუ baseline reference მაინც უკეთესია.
+
+Inference უნდა მოხდეს ფაილში:
+
+```text
+N-BEATS_inference.ipynb
+```
+
+ეს notebook აკეთებს:
+
+1. W&B Registry-დან pipeline artifact-ის ჩამოტვირთვას;
+2. `test.csv`-ის raw ფორმით ჩატვირთვას;
+3. `pipeline.predict(test_raw)` გამოძახებას;
+4. Kaggle submission CSV-ის შექმნას;
+5. submission artifact-ის W&B-ში დალოგვას.
+
+
+### Partial Optuna run observation
+
+პირველი Optuna მცდელობა შეწყდა, რადგან 25 trial და 100 epoch ძალიან დიდ დროს იღებდა. პირველმა რამდენიმე trial-მაც baseline ვერ გააუმჯობესა:
+
+```text
+Trial 0 best WMAE = 2191.4117
+Trial 1 best WMAE = 2400.4774
+Trial 2 best WMAE = 2199.4592
+Trial 3 best WMAE = 2201.6325
+Baseline best WMAE = 2157.9829
+```
+
+ამიტომ Optuna setup შემცირდა სწრაფი tuning pass-ისთვის:
+
+```text
+OPTUNA_N_TRIALS = 8
+max_epochs = 20
+early_stopping_patience = 4
+MedianPruner warmup = 3 epochs
+```
+
+ეს ვერსია უფრო სწრაფად უნდა გაეშვას და მიზანია სწრაფად ვნახოთ, არის თუ არა N-BEATS-ის tuning-ში baseline-ზე უკეთესი signal.
