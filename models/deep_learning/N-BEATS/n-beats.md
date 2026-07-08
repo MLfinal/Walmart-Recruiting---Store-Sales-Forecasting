@@ -333,4 +333,108 @@ Experiment 3 გაუმჯობესებულად ჩაითვლე
 target: best WMAE < 2157.9829
 ```
 
-შედეგი ჯერ გასაშვებია.
+### შედეგი
+
+Experiment 3 გაეშვა 100 epoch-ზე holiday-aware weighted loss-ით.
+
+საუკეთესო validation შედეგი მიიღო მე-5 epoch-ზე:
+
+```text
+Best epoch: 5
+Best validation WMAE: 2185.1366
+Best validation MAE: 2160.8167
+```
+
+Epoch-ების მიხედვით მნიშვნელოვანი წერტილები:
+
+```text
+epoch 1   validation WMAE = 2216.2192
+epoch 5   validation WMAE = 2185.1366
+epoch 10  validation WMAE = 2230.4306
+epoch 30  validation WMAE = 2237.8199
+epoch 50  validation WMAE = 2238.5973
+epoch 100 validation WMAE = 2238.7149
+```
+
+Training weighted loss შემცირდა:
+
+```text
+epoch 1   train weighted L1 = 0.54881
+epoch 100 train weighted L1 = 0.41390
+```
+
+### Baseline-თან და წინა ექსპერიმენტებთან შედარება
+
+Reference შედეგები:
+
+```text
+Baseline best WMAE     = 2157.9829
+Experiment 1 best WMAE = 2186.5015
+Experiment 2 best WMAE = 2662.8061
+Experiment 3 best WMAE = 2185.1366
+```
+
+Baseline-თან სხვაობა:
+
+```text
+2185.1366 - 2157.9829 = +27.1537
+```
+
+Experiment 1-თან სხვაობა:
+
+```text
+2185.1366 - 2186.5015 = -1.3649
+```
+
+Experiment 2-თან სხვაობა:
+
+```text
+2185.1366 - 2662.8061 = -477.6695
+```
+
+რადგან Weighted MAE უფრო დაბალი უკეთესია, Experiment 3:
+
+- baseline-ზე უარესია;
+- Experiment 1-ზე ოდნავ უკეთესია;
+- Experiment 2-ზე ბევრად უკეთესია.
+
+მაგრამ მთავარი reference არის baseline, ამიტომ Experiment 3 საბოლოოდ გაუმჯობესებად არ ითვლება.
+
+### ანალიზი
+
+Holiday-aware weighted loss იყო ლოგიკური იდეა, რადგან validation metric holiday weeks-ს უფრო დიდ weight-ს აძლევს. ამ ცვლილებამ მოდელი ოდნავ უკეთესი გახადა Experiment 1-თან შედარებით, მაგრამ baseline-ის საუკეთესო შედეგი ვერ გადალახა.
+
+მნიშვნელოვანი დაკვირვება:
+
+- საუკეთესო შედეგი ისევ ძალიან ადრე, მე-5 epoch-ზე მიიღება;
+- training weighted loss შემდეგაც მცირდება;
+- validation WMAE მე-5 epoch-ის შემდეგ უარესდება და დაახლოებით `2238`-თან სტაბილურდება;
+- 100 epoch-მდე გაშვებამ დამატებითი გაუმჯობესება არ მოიტანა.
+
+ეს ნიშნავს, რომ მხოლოდ holiday-aware weighted loss საკმარისი არ არის. მოდელი კვლავ უკეთ ერგება training windows-ს, მაგრამ validation period-ზე უკეთესად ვერ generalize-დება.
+
+100 epoch-ის შედეგიც აჩვენებს, რომ მეტი epoch არ არის გამოსავალი. საუკეთესო epoch იყო `5`, ხოლო epoch `100` უკვე ბევრად უარესია:
+
+```text
+best WMAE at epoch 5   = 2185.1366
+final WMAE at epoch 100 = 2238.7149
+```
+
+### დასკვნა
+
+Experiment 3-მა baseline არ გააუმჯობესა.
+
+შედეგი:
+
+```text
+Not improved vs baseline
+```
+
+თუმცა Experiment 3 ოდნავ უკეთესია Experiment 1-ზე, ამიტომ holiday-aware loss მთლიანად უინტერესო არ არის. უბრალოდ ამ fixed hyperparameters-ით baseline-ზე უკეთესი შედეგი ვერ მიიღო.
+
+შემდეგი ნაბიჯი შეიძლება იყოს hyperparameter grid search, მაგრამ grid search-ის დროს სასურველია შევადაროთ ორი ვარიანტი:
+
+- regular L1 loss;
+- holiday-aware weighted L1 loss.
+
+ასე გამოჩნდება, weighted loss სხვა hyperparameters-თან ერთად უკეთ მუშაობს თუ არა.
