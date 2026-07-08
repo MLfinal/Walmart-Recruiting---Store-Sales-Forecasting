@@ -282,3 +282,55 @@ Not improved
 `context_length = 78` მნიშვნელოვნად უარესია baseline-ზე. ამიტომ ამ მიმართულებით გაგრძელება ამ ეტაპზე არ არის რეკომენდებული.
 
 შემდეგი ექსპერიმენტისთვის უკეთესი იქნება არა context-ის გაზრდა, არამედ model capacity-ის შემცირება ან holiday-aware loss/sample weighting-ის დამატება. იმის გამო, რომ validation metric holiday weeks-ს უფრო დიდ წონას აძლევს, შემდეგი ლოგიკური ნაბიჯი შეიძლება იყოს holiday-aware weighted loss, სადაც forecast horizon-ის holiday კვირებს training loss-ში მეტი წონა ექნება.
+
+## Experiment 3: holiday-aware weighted loss
+
+`model_experiment_N-BEATS.ipynb`-ში შემდეგი ექსპერიმენტისთვის დაემატა holiday-aware training loss.
+
+ამ ექსპერიმენტში baseline-ის ძირითადი setup დაბრუნებულია, მაგრამ training duration გაიზარდა 100 epoch-მდე:
+
+```text
+context_length = 52
+learning_rate = 1e-3
+max_epochs = 100
+early stopping = no
+```
+
+Experiment 2-ის `context_length = 78` არ გამოიყენება, რადგან მან validation WMAE მნიშვნელოვნად გააუარესა.
+
+### რა დაემატა
+
+Training target horizon-ის თითოეულ კვირას ენიჭება weight:
+
+```text
+normal week  -> weight = 1
+holiday week -> weight = 5
+```
+
+შემდეგ training loss ითვლება weighted L1-ით:
+
+```text
+weighted_l1 = sum(abs(prediction - target) * holiday_weight) / sum(holiday_weight)
+```
+
+ეს feature engineering არ ამატებს ახალ input feature-ს მოდელში. N-BEATS კვლავ იღებს მხოლოდ historical sales sequence-ს. ცვლილება არის training objective-ში: მოდელს უფრო მეტად ვასწავლით holiday target weeks-ზე სწორ პროგნოზს, რადგან competition metric-შიც holiday weeks უფრო მაღალ წონას იღებს.
+
+### რატომ არის ეს ლოგიკური შემდეგი ნაბიჯი
+
+წინა შედეგები:
+
+```text
+Baseline best WMAE     = 2157.9829
+Experiment 1 best WMAE = 2186.5015
+Experiment 2 best WMAE = 2662.8061
+```
+
+ორივე ექსპერიმენტმა აჩვენა, რომ მხოლოდ training speed-ის შეცვლა ან history-ის გაზრდა საკმარისი არ იყო. რადგან evaluation metric არის weighted და holiday weeks-ს უფრო დიდ მნიშვნელობას ანიჭებს, ლოგიკურია training loss-იც იგივე პრიორიტეტს მიჰყვეს.
+
+Experiment 3 გაუმჯობესებულად ჩაითვლება მხოლოდ მაშინ, თუ მისი best validation WMAE იქნება baseline-ზე დაბალი:
+
+```text
+target: best WMAE < 2157.9829
+```
+
+შედეგი ჯერ გასაშვებია.
