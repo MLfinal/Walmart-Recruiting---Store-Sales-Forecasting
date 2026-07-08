@@ -188,4 +188,97 @@ Experiment 1 best WMAE = 2186.5015
 
 Experiment 2 გაუმჯობესებულად ჩაითვლება მხოლოდ მაშინ, თუ მისი best validation WMAE იქნება `2157.9829`-ზე დაბალი.
 
-შედეგი ჯერ გასაშვებია.
+### შედეგი
+
+Experiment 2 გაეშვა შემდეგი ცვლილებით:
+
+```text
+context_length = 78
+learning_rate = 1e-3
+max_epochs = 30
+early stopping = no
+```
+
+საუკეთესო validation შედეგი მიიღო მე-2 epoch-ზე:
+
+```text
+Best epoch: 2
+Best validation WMAE: 2662.8061
+Best validation MAE: 2623.1826
+```
+
+Epoch-ების მიხედვით validation WMAE იყო:
+
+```text
+epoch 1  validation WMAE = 2682.9611
+epoch 2  validation WMAE = 2662.8061
+epoch 3  validation WMAE = 2706.3169
+epoch 10 validation WMAE = 2685.4876
+epoch 20 validation WMAE = 2711.2920
+epoch 30 validation WMAE = 2714.2796
+```
+
+Training loss კი მუდმივად მცირდებოდა:
+
+```text
+epoch 1  train L1 = 0.59188
+epoch 30 train L1 = 0.35715
+```
+
+### Baseline-თან და Experiment 1-თან შედარება
+
+Reference შედეგები:
+
+```text
+Baseline best WMAE     = 2157.9829
+Experiment 1 best WMAE = 2186.5015
+Experiment 2 best WMAE = 2662.8061
+```
+
+Baseline-თან სხვაობა:
+
+```text
+2662.8061 - 2157.9829 = +504.8232
+```
+
+Experiment 1-თან სხვაობა:
+
+```text
+2662.8061 - 2186.5015 = +476.3046
+```
+
+რადგან Weighted MAE უფრო დაბალი უკეთესია, Experiment 2 მკვეთრად უარესია როგორც baseline-ზე, ასევე Experiment 1-ზე.
+
+### ანალიზი
+
+`context_length = 78` იდეა იყო, რომ მოდელს უფრო გრძელი ისტორია ენახა და შეიძლება უკეთესად დაეჭირა seasonality ან department/store pattern-ები. მაგრამ შედეგმა აჩვენა, რომ ამ კონკრეტულ setup-ში უფრო გრძელი context არ ეხმარება.
+
+მნიშვნელოვანი დაკვირვება:
+
+- training loss ძალიან კარგად მცირდება;
+- validation WMAE თავიდანვე მაღალია;
+- საუკეთესო შედეგი ისევ ძალიან ადრე, მე-2 epoch-ზე მიიღება;
+- epoch 3-ის შემდეგ validation ძირითადად `2680-2715` დიაპაზონში რჩება;
+- ეს ნიშნავს, რომ მოდელი training windows-ზე უკეთეს fit-ს სწავლობს, მაგრამ validation period-ზე generalization მკვეთრად უარესდება.
+
+ამის სავარაუდო მიზეზებია:
+
+- `78` კვირიანი input ამცირებს training windows-ის რაოდენობას, რადგან თითო sample-ს მეტი ისტორია სჭირდება;
+- გრძელი context მოდელს აძლევს მეტ ინფორმაციას, მაგრამ ასევე მეტ noise-ს;
+- N-BEATS baseline architecture შეიძლება ვერ იყენებდეს დამატებით 26 კვირას ეფექტიანად;
+- Walmart-ის ბოლო 32 კვირის validation period შეიძლება უფრო ახლო recent pattern-ებზე იყოს დამოკიდებული, ვიდრე 78 კვირიან გრძელ ისტორიაზე;
+- უფრო გრძელი input ზრდის model fitting complexity-ს და overfitting/generalization პრობლემა უფრო ძლიერდება.
+
+### დასკვნა
+
+Experiment 2-მა არ გააუმჯობესა baseline.
+
+შედეგი:
+
+```text
+Not improved
+```
+
+`context_length = 78` მნიშვნელოვნად უარესია baseline-ზე. ამიტომ ამ მიმართულებით გაგრძელება ამ ეტაპზე არ არის რეკომენდებული.
+
+შემდეგი ექსპერიმენტისთვის უკეთესი იქნება არა context-ის გაზრდა, არამედ model capacity-ის შემცირება ან holiday-aware loss/sample weighting-ის დამატება. იმის გამო, რომ validation metric holiday weeks-ს უფრო დიდ წონას აძლევს, შემდეგი ლოგიკური ნაბიჯი შეიძლება იყოს holiday-aware weighted loss, სადაც forecast horizon-ის holiday კვირებს training loss-ში მეტი წონა ექნება.
