@@ -276,3 +276,60 @@ Decision rule:
 
 - თუ v2 ისევ seasonal naive-ზე უარესია, შემდეგი ნაბიჯი უნდა იყოს sample/window strategy ან TFT-ის შეჩერება;
 - თუ v2 v1-ს ძლიერად აჯობებს, შემდეგ v3-ში შეიძლება top series count/training budget გავზარდოთ.
+
+### v2 result status
+
+ამ repo snapshot-ში `model_experiment_TFT_v2.ipynb` უკვე დამატებულია, მაგრამ notebook outputs-ში final run metrics არ ჩანს. ამიტომ README-ში v2-ის numeric result ჯერ არ უნდა ჩაიწეროს guessing-ით.
+
+v2 result-ისთვის საჭიროა W&B run summary-დან ან Colab output-იდან ეს values:
+
+```text
+best_validation_wmae
+seasonal_naive_wmae
+improvement_vs_seasonal_naive_pct
+improvement_vs_v1_pct
+best_val_loss
+W&B run link
+```
+
+სანამ ეს numbers არ გვაქვს, v2-ის conclusion რჩება:
+
+```text
+status = trained by user, exact result not available in local notebook outputs
+```
+
+## შემდეგ რა უნდა ვცადოთ TFT-ში
+
+TFT-ის ცუდი შედეგი ჯერ არ ნიშნავს, რომ architecture მთლიანად useless არის. უფრო ზუსტი დასკვნაა: ჩვენი current controlled TFT setup ჯერ ვერ ჯობნის simple seasonal reference-ს. მიზეზები სავარაუდოდ არის:
+
+- training sample შეზღუდულია top 300/500 series-ზე;
+- batches/epochs ხელოვნურად შეზღუდულია Colab runtime-ის გამო;
+- TFT raw/log target-ზე ჯერ ვერ სწავლობს Store-Dept scale-ს კარგად;
+- WMAE holiday weighting loss-ში პირდაპირ არ არის ჩაშენებული ისე, როგორც DLinear-ში გვქონდა;
+- model selection ხდება PyTorch Forecasting `val_loss`-ით, ხოლო final metric არის ჩვენი custom WMAE original scale-ზე.
+
+ყველაზე აზრიანი შემდეგი მცდელობები:
+
+1. **v3: weighted validation/selection fix**  
+   checkpoint selection არ უნდა ენდობოდეს მხოლოდ `val_loss`-ს. უნდა დავამატოთ epoch-end custom WMAE evaluation ან training-ის შემდეგ რამდენიმე checkpoint-ის WMAE comparison. მიზანი: საუკეთესო checkpoint ავირჩიოთ Kaggle WMAE-ით.
+
+2. **v4: stronger seasonal baseline hybrid**  
+   TFT-ს ვასწავლოთ არა raw sales, არამედ seasonal naive residual:
+
+   ```text
+   target = Weekly_Sales - sales_52_weeks_ago
+   prediction = seasonal_naive + predicted_residual
+   ```
+
+   Walmart-ში yearly seasonality ძლიერია. TFT შეიძლება უკეთ სწავლობდეს correction-ს, ვიდრე მთელ sales level-ს.
+
+3. **v5: bigger but still controlled training**  
+   მხოლოდ თუ v3/v4-ში გაუმჯობესება ჩანს:
+
+   ```text
+   top_n_series = 1000
+   limit_train_batches = 100+
+   max_epochs = 15-20
+   ```
+
+თუ v3/v4-იც seasonal naive-ზე უარესია, TFT უნდა დავხუროთ როგორც non-competitive model და inference არ უნდა დავწეროთ.
