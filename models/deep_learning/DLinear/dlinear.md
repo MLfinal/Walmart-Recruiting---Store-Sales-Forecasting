@@ -59,6 +59,7 @@ DLinear არის მარტივი deep learning time-series მოდ�
 | v3 | 52w | gated calendar branch | 10 | 1511.97 | +5.75% | +22.92% vs v2 |
 | v4 | 52w | Store/Dept embeddings | 7 | 1542.83 | +3.83% | -2.43% vs v1 |
 | v5 | 52w | tuned v1 optimization | 15 | 1507.44 | +6.04% | -0.08% vs v1 |
+| v6 | 52w | external covariates | 7 | 1548.03 | +3.51% | -2.77% vs v1 |
 
 შენიშვნა: v1-ის იდეა იყო უფრო გრძელი context, მაგრამ რეალურად 104-week context ამ split-ზე შეუძლებელია training windows-ისთვის: pre-validation history არის 104 კვირა, ხოლო target horizon არის 39 კვირა. საჭიროა `input_weeks + 39 <= 104`. ამიტომ working v1 უნდა ჩაითვალოს როგორც 52-week DLinear + Store-Dept calibration.
 
@@ -855,4 +856,108 @@ v6-ის კითხვა:
 შეიძლება თუ არა external Walmart covariates-მა DLinear-ს v1-ზე უკეთესი შედეგი მისცეს?
 ```
 
-თუ v6 არ აჯობებს v1-ს, DLinear-ის manual experiment phase დასრულებულია და inference უნდა გაკეთდეს v1 checkpoint/artifact-ით.
+W&B run:
+
+https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/y7yrkwl0
+
+### v6 config/logs
+
+| ველი | მნიშვნელობა |
+|---|---:|
+| `validation_weeks` | `39` |
+| `input_weeks` | `52` |
+| `batch_size` | `512` |
+| `learning_rate` | `5e-4` |
+| `weight_decay` | `2e-4` |
+| `series_bias_weight_decay` | `1e-3` |
+| `covariate_weight_decay` | `1e-4` |
+| `covariate_gate_l1` | `1e-4` |
+| `covariate_hidden_dim` | `32` |
+| total training windows | `46634` |
+| validation series | `3331` |
+| best epoch | `7` |
+| early stopping | epoch `25` |
+| best validation WMAE | `1548.03` |
+| best covariate gate | `-0.11790` |
+
+best epoch-ის log:
+
+```text
+epoch = 7
+train/normalized_wmae_loss = 2.3866920
+validation/normalized_wmae_loss = 0.6892855
+validation/wmae = 1548.0344
+validation/improvement_vs_seasonal_naive_pct = 3.5054
+validation/improvement_vs_baseline_pct = -1.6298
+validation/improvement_vs_v1_pct = -2.7719
+model/covariate_gate = -0.11790
+learning_rate = 0.0005
+```
+
+Run summary:
+
+```text
+best_epoch = 7
+best_validation_wmae = 1548.03442
+dlinear_v1_calibration_wmae = 1506.28247
+dlinear_v5_tuned_wmae = 1507.43884
+best_improvement_vs_v1_pct = -2.77185
+final_covariate_gate = -0.11790
+```
+
+v6-ში გამოყენებული features:
+
+```text
+Temperature, Fuel_Price,
+MarkDown1, MarkDown2, MarkDown3, MarkDown4, MarkDown5,
+CPI, Unemployment,
+Size,
+Type_A, Type_B, Type_C,
+IsHoliday
+```
+
+### v6 result interpretation
+
+v6-მ ვერ გააუმჯობესა v1:
+
+```text
+v1: 1506.28
+v6: 1548.03
+difference = -2.77% vs v1
+```
+
+v6 baseline-ზეც უარესია:
+
+```text
+baseline: 1523.21
+v6: 1548.03
+```
+
+ეს ნიშნავს, რომ external covariates ამ ფორმით DLinear-ს არ დაეხმარა. სავარაუდო მიზეზები:
+
+- DLinear-ის მარტივი forecast head უკეთ მუშაობს target-history pattern-ზე, ვიდრე heterogeneous tabular covariates-ზე;
+- covariate branch-მა train loss შეამცირა, მაგრამ validation WMAE სწრაფად გაუარესდა epoch 7-ის შემდეგ;
+- tree-based models უკეთ ამუშავებენ markdown/CPI/fuel/store metadata ტიპის tabular signal-ს;
+- covariate gate non-zero გახდა, მაგრამ ეს signal validation-ზე noise აღმოჩნდა.
+
+დასკვნა: v6 rejected. DLinear-ის საუკეთესო architecture კვლავ v1 რჩება.
+
+## Hyperparameter tuning
+
+manual feature experiments დასრულებულია. შემდეგი ნაბიჯი არის არა ახალი feature branch, არამედ საუკეთესო architecture-ის tuning:
+
+```text
+best architecture = v1 = DLinear + Store-Dept series_bias
+```
+
+Tuning notebook ცდის:
+
+- `input_weeks`: `39`, `52`;
+- `learning_rate`;
+- `weight_decay`;
+- `series_bias_weight_decay`;
+- `moving_avg_kernel`;
+- `batch_size`;
+- patience/scheduler იგივე ლოგიკით.
+
+თუ tuning-მა v1-ს აჯობა, inference გაკეთდება tuned checkpoint-ით. თუ tuning ვერ აჯობებს, inference გაკეთდება v1 checkpoint/artifact-ით.
