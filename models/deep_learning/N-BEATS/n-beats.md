@@ -149,16 +149,16 @@ Lower learning rate + early stopping დაეხმარა training-ის �
 
 შემდეგი ექსპერიმენტისთვის უფრო ლოგიკურია ერთი სხვა ცვლილების შემოწმება, მაგალითად:
 
-- `context_length` გაზრდა `52`-დან `104` კვირამდე;
+- `context_length` გაზრდა `52`-დან `78` კვირამდე;
 - ან model capacity-ის შემცირება, რადგან overfitting/generalization პრობლემა კვლავ ჩანს;
 - ან holiday-aware loss/sample weighting, რადგან competition metric holiday weeks-ს უფრო დიდ წონას აძლევს.
 
-## Experiment 2: context length 104
+## Experiment 2: context length 78
 
 `model_experiment_N-BEATS.ipynb`-ში შემდეგი ექსპერიმენტისთვის დაემატა ერთი isolated ცვლილება:
 
 ```text
-context_length = 104
+context_length = 78
 ```
 
 Baseline-ში გამოყენებული იყო:
@@ -175,7 +175,9 @@ max_epochs = 30
 early stopping = no
 ```
 
-ამ ექსპერიმენტის მიზანია შემოწმდეს, ეხმარება თუ არა N-BEATS-ს უფრო გრძელი ისტორია. ანუ მოდელი იღებს არა ბოლო 52 კვირას, არამედ ბოლო 104 კვირას და პროგნოზირებს შემდეგ 32 კვირას.
+ამ ექსპერიმენტის მიზანია შემოწმდეს, ეხმარება თუ არა N-BEATS-ს უფრო გრძელი ისტორია. ანუ მოდელი იღებს არა ბოლო 52 კვირას, არამედ ბოლო 78 კვირას და პროგნოზირებს შემდეგ 32 კვირას.
+
+თავდაპირველად განიხილებოდა `context_length = 104`, მაგრამ ამ validation split-ით training period-ში არ რჩება საკმარისი ისტორია სრული training window-ისთვის: input `104` კვირა + target `32` კვირა. ამიტომ leak-free ექსპერიმენტისთვის გამოყენებულია `78` კვირა, რომელიც baseline-ზე გრძელია და მაინც ქმნის training windows-ს validation-მდე.
 
 შესადარებელი reference შედეგები:
 
