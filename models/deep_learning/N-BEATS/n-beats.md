@@ -438,3 +438,85 @@ Not improved vs baseline
 - holiday-aware weighted L1 loss.
 
 ასე გამოჩნდება, weighted loss სხვა hyperparameters-თან ერთად უკეთ მუშაობს თუ არა.
+
+## Final Experiment: hyperparameter grid search
+
+`model_experiment_N-BEATS.ipynb` გადაკეთდა final hyperparameter grid search ექსპერიმენტად.
+
+წინა ექსპერიმენტებიდან მთავარი დასკვნები იყო:
+
+```text
+Baseline best WMAE     = 2157.9829
+Experiment 1 best WMAE = 2186.5015
+Experiment 2 best WMAE = 2662.8061
+Experiment 3 best WMAE = 2185.1366
+```
+
+საუკეთესო შედეგი კვლავ baseline-ს ჰქონდა. თუმცა Experiment 3-ში holiday-aware weighted loss ოდნავ უკეთესი იყო Experiment 1-ზე, ამიტომ final grid search-ში შედარდება ორივე loss type:
+
+- regular L1 loss;
+- holiday-aware weighted L1 loss.
+
+### Grid search setup
+
+Final grid search იყენებს baseline-ის preprocessing-ს და optimizer-საც ცდის როგორც hyperparameter-ს:
+
+```text
+context_length = 52
+forecast_horizon = 32
+validation_weeks = 32
+```
+
+Grid-ში იცვლება:
+
+```text
+optimizer     = sgd, adam
+loss_type     = regular_l1, holiday_weighted_l1
+batch_size    = 64, 128
+learning_rate = 1e-3, 3e-4
+hidden_units  = 128, 256
+dropout       = 0.0, 0.10
+weight_decay  = 0.0, 1e-4
+```
+
+სულ combinations:
+
+```text
+2 * 2 * 2 * 2 * 2 * 2 * 2 = 128 trials
+```
+
+ფიქსირებული პარამეტრები:
+
+```text
+num_blocks = 4
+num_layers = 4
+max_epochs = 100
+early_stopping_patience = 8
+```
+
+Early stopping დაემატა იმიტომ, რომ წინა ყველა ექსპერიმენტში საუკეთესო validation შედეგი ადრეულ epoch-ებზე მიიღებოდა. 100 epoch-მდე სწავლა ხშირად აღარ აუმჯობესებდა validation WMAE-ს.
+
+### რას ლოგავს W&B-ში
+
+Notebook ლოგავს:
+
+- preprocessing run-ს;
+- თითო trial-ს ცალკე W&B run-ად;
+- train loss-ს;
+- validation Weighted MAE-ს;
+- validation MAE/RMSE-ს;
+- grid search summary table-ს;
+- best trial diagnostics-ს;
+- best validation predictions-ს და weekly errors-ს.
+
+ამ ეტაპზე model artifact და Model Registry არ იქმნება, რადგან ჯერ გვინდა მხოლოდ validation-ზე საუკეთესო setup-ის პოვნა.
+
+### მიზანი
+
+Final grid search გაუმჯობესებულად ჩაითვლება მხოლოდ მაშინ, თუ საუკეთესო trial მიიღებს baseline-ზე დაბალ validation WMAE-ს:
+
+```text
+target: best grid WMAE < 2157.9829
+```
+
+შედეგი ჯერ გასაშვებია.
