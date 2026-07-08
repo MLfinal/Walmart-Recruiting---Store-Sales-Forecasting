@@ -432,16 +432,18 @@ Not improved vs baseline
 
 თუმცა Experiment 3 ოდნავ უკეთესია Experiment 1-ზე, ამიტომ holiday-aware loss მთლიანად უინტერესო არ არის. უბრალოდ ამ fixed hyperparameters-ით baseline-ზე უკეთესი შედეგი ვერ მიიღო.
 
-შემდეგი ნაბიჯი შეიძლება იყოს hyperparameter grid search, მაგრამ grid search-ის დროს სასურველია შევადაროთ ორი ვარიანტი:
+შემდეგი ნაბიჯი შეიძლება იყოს hyperparameter tuning, მაგრამ tuning-ის დროს სასურველია შევადაროთ ორი ვარიანტი:
 
 - regular L1 loss;
 - holiday-aware weighted L1 loss.
 
 ასე გამოჩნდება, weighted loss სხვა hyperparameters-თან ერთად უკეთ მუშაობს თუ არა.
 
-## Final Experiment: hyperparameter grid search
+## Final Experiment: Optuna hyperparameter tuning
 
-`model_experiment_N-BEATS.ipynb` გადაკეთდა final hyperparameter grid search ექსპერიმენტად.
+`model_experiment_N-BEATS.ipynb` გადაკეთდა final Optuna hyperparameter tuning ექსპერიმენტად.
+
+Grid search-ის ნაცვლად გამოიყენება Optuna, რადგან სრული grid უკვე საკმაოდ მძიმე იქნებოდა. Optimizer-ის დამატების შემდეგ grid იქნებოდა 128 trial, ხოლო Optuna საშუალებას გვაძლევს ნაკლები trial-ით ვცადოთ უფრო პერსპექტიული კომბინაციები.
 
 წინა ექსპერიმენტებიდან მთავარი დასკვნები იყო:
 
@@ -452,14 +454,14 @@ Experiment 2 best WMAE = 2662.8061
 Experiment 3 best WMAE = 2185.1366
 ```
 
-საუკეთესო შედეგი კვლავ baseline-ს ჰქონდა. თუმცა Experiment 3-ში holiday-aware weighted loss ოდნავ უკეთესი იყო Experiment 1-ზე, ამიტომ final grid search-ში შედარდება ორივე loss type:
+საუკეთესო შედეგი კვლავ baseline-ს ჰქონდა. თუმცა Experiment 3-ში holiday-aware weighted loss ოდნავ უკეთესი იყო Experiment 1-ზე, ამიტომ Optuna search-ში კვლავ შედარდება ორივე loss type:
 
 - regular L1 loss;
 - holiday-aware weighted L1 loss.
 
-### Grid search setup
+### Optuna search setup
 
-Final grid search იყენებს baseline-ის preprocessing-ს და optimizer-საც ცდის როგორც hyperparameter-ს:
+Final Optuna tuning იყენებს baseline-ის preprocessing-ს:
 
 ```text
 context_length = 52
@@ -467,22 +469,22 @@ forecast_horizon = 32
 validation_weeks = 32
 ```
 
-Grid-ში იცვლება:
+Optuna ცდის შემდეგ search space-ს:
 
 ```text
 optimizer     = sgd, adam
 loss_type     = regular_l1, holiday_weighted_l1
 batch_size    = 64, 128
-learning_rate = 1e-3, 3e-4
+learning_rate = 1e-4 ... 1e-2, log scale
 hidden_units  = 128, 256
-dropout       = 0.0, 0.10
-weight_decay  = 0.0, 1e-4
+dropout       = 0.0 ... 0.20
+weight_decay  = 1e-6 ... 1e-3, log scale
 ```
 
-სულ combinations:
+Trial-ების რაოდენობა notebook-ში არის:
 
 ```text
-2 * 2 * 2 * 2 * 2 * 2 * 2 = 128 trials
+OPTUNA_N_TRIALS = 25
 ```
 
 ფიქსირებული პარამეტრები:
@@ -501,11 +503,11 @@ Early stopping დაემატა იმიტომ, რომ წინა 
 Notebook ლოგავს:
 
 - preprocessing run-ს;
-- თითო trial-ს ცალკე W&B run-ად;
+- თითო Optuna trial-ს ცალკე W&B run-ად;
 - train loss-ს;
 - validation Weighted MAE-ს;
 - validation MAE/RMSE-ს;
-- grid search summary table-ს;
+- Optuna summary table-ს;
 - best trial diagnostics-ს;
 - best validation predictions-ს და weekly errors-ს.
 
@@ -513,10 +515,10 @@ Notebook ლოგავს:
 
 ### მიზანი
 
-Final grid search გაუმჯობესებულად ჩაითვლება მხოლოდ მაშინ, თუ საუკეთესო trial მიიღებს baseline-ზე დაბალ validation WMAE-ს:
+Final Optuna tuning გაუმჯობესებულად ჩაითვლება მხოლოდ მაშინ, თუ საუკეთესო trial მიიღებს baseline-ზე დაბალ validation WMAE-ს:
 
 ```text
-target: best grid WMAE < 2157.9829
+target: best Optuna WMAE < 2157.9829
 ```
 
 შედეგი ჯერ გასაშვებია.
