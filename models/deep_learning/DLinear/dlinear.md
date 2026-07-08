@@ -58,6 +58,7 @@ DLinear არის მარტივი deep learning time-series მოდ�
 | v2 | 65w | free calendar branch | 36 | 1961.45 | -22.27% | -30.22% |
 | v3 | 52w | gated calendar branch | 10 | 1511.97 | +5.75% | +22.92% vs v2 |
 | v4 | 52w | Store/Dept embeddings | 7 | 1542.83 | +3.83% | -2.43% vs v1 |
+| v5 | 52w | tuned v1 optimization | 15 | 1507.44 | +6.04% | -0.08% vs v1 |
 
 შენიშვნა: v1-ის იდეა იყო უფრო გრძელი context, მაგრამ რეალურად 104-week context ამ split-ზე შეუძლებელია training windows-ისთვის: pre-validation history არის 104 კვირა, ხოლო target horizon არის 39 კვირა. საჭიროა `input_weeks + 39 <= 104`. ამიტომ working v1 უნდა ჩაითვალოს როგორც 52-week DLinear + Store-Dept calibration.
 
@@ -698,3 +699,160 @@ v5-ის კითხვა:
 ```text
 შეგვიძლია თუ არა v1-ს ვაჯობოთ არა ახალი feature-ით, არამედ უფრო სტაბილური optimization-ით?
 ```
+
+W&B run:
+
+https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/3oypefvl
+
+### v5 config/logs
+
+| ველი | მნიშვნელობა |
+|---|---:|
+| `validation_weeks` | `39` |
+| `input_weeks` | `52` |
+| `batch_size` | `512` |
+| `learning_rate` | `5e-4` |
+| `weight_decay` | `2e-4` |
+| `series_bias_weight_decay` | `1e-3` |
+| `moving_avg_kernel` | `25` |
+| `epochs` | `120` |
+| `patience` | `18` |
+| total training windows | `46634` |
+| validation series | `3331` |
+| best epoch | `15` |
+| early stopping | epoch `33` |
+| best validation WMAE | `1507.44` |
+
+best epoch-ის log:
+
+```text
+epoch = 15
+train/normalized_wmae_loss = 2.3483218
+validation/normalized_wmae_loss = 0.6868140
+validation/wmae = 1507.4388
+validation/improvement_vs_seasonal_naive_pct = 6.0358
+validation/improvement_vs_baseline_pct = 1.0354
+validation/improvement_vs_v1_pct = -0.0768
+learning_rate = 0.0005
+```
+
+Run summary:
+
+```text
+best_epoch = 15
+best_validation_wmae = 1507.43884
+baseline_dlinear_39w_wmae = 1523.20972
+dlinear_v1_calibration_wmae = 1506.28247
+dlinear_v4_identity_wmae = 1542.83435
+best_improvement_vs_v1_pct = -0.07677
+```
+
+Run history:
+
+- validation WMAE სწრაფად გაუმჯობესდა `1647.75 → 1507.44`;
+- საუკეთესო შედეგი იყო epoch `15`;
+- epoch 15-ის შემდეგ train loss განაგრძობდა შემცირებას, მაგრამ validation აღარ გაუმჯობესდა;
+- learning rate შემცირდა `0.0005 → 0.00025 → 0.000125 → 0.0000625`;
+- early stopping მოხდა epoch `33`-ზე.
+
+### v5 result interpretation
+
+v5 თითქმის გაუტოლდა v1-ს, მაგრამ ვერ აჯობა:
+
+```text
+v1: 1506.28
+v5: 1507.44
+difference = -0.08% vs v1
+```
+
+v5 baseline-ზე უკეთესია:
+
+```text
+baseline: 1523.21
+v5: 1507.44
+improvement = +1.04%
+```
+
+დასკვნა:
+
+- lower learning rate-მა training უფრო სტაბილური გახადა;
+- v5 ბევრად სჯობს v4-ს და v3-ს უახლოვდება/ჯობნის, მაგრამ v1-ს ვერ აჭარბებს;
+- DLinear-ის საუკეთესო validation run რჩება v1 (`1506.28`);
+- შემდგომი მნიშვნელოვანი გაუმჯობესება ალბათ უკვე random hyperparameter tuning-ს ან external covariates-ს მოითხოვს.
+
+## DLinear experiments summary
+
+ამ ეტაპზე DLinear-ის ხელით გაკეთებული sequential experiments საკმარისია:
+
+- baseline დაამტკიცა, რომ pure sequence DLinear მუშაობს;
+- v1 დაამტკიცა, რომ Store-Dept calibration ეხმარება;
+- v2/v3 აჩვენებს, რომ calendar features საჭიროა ძალიან ფრთხილად;
+- v4 აჩვენებს, რომ separate Store/Dept embeddings ამ ფორმით არ დაეხმარა;
+- v5 აჩვენებს, რომ მარტივი optimization tweak v1-ს თითქმის უტოლდება, მაგრამ არ სჯობს.
+
+## საბოლოო v6: external covariates
+
+v6 არის ბოლო manual DLinear experiment inference-მდე. აქ ვტესტავთ იმ feature-ებს, რომლებიც ჯერ არ გვიცდია, მაგრამ Walmart-ის ამოცანაში შეიძლება მნიშვნელოვანი იყოს.
+
+v6 base ისევ v1-ია:
+
+```text
+past 52 Weekly_Sales
+→ DLinear forecast
+
+series_idx
+→ Store-Dept series_bias
+```
+
+დამატებულია future covariates:
+
+`features.csv`-დან:
+
+- `Temperature`;
+- `Fuel_Price`;
+- `MarkDown1`;
+- `MarkDown2`;
+- `MarkDown3`;
+- `MarkDown4`;
+- `MarkDown5`;
+- `CPI`;
+- `Unemployment`;
+- `IsHoliday`.
+
+`stores.csv`-დან:
+
+- `Type_A`;
+- `Type_B`;
+- `Type_C`;
+- `Size`.
+
+როგორ დაემატა:
+
+```text
+(Store, Date) features
+→ numeric scaling fitted only on fit dates
+→ future_covariates for each 39-week target window
+→ covariate_head MLP
+→ gated covariate_adjustment
+
+forecast = DLinear forecast
+         + series_bias
+         + tanh(covariate_gate) * covariate_adjustment
+```
+
+რატომ gated: v2/v3-მა გვაჩვენა, რომ external branch პირდაპირ თუ ემატება forecast-ს, შეიძლება დააზიანოს prediction. ამიტომ v6-ში covariate branch იწყება თითქმის 0 გავლენით და მხოლოდ training-ისას იღებს წონას.
+
+leakage control:
+
+- validation split იგივეა: ბოლო 39 კვირა;
+- target-derived features არ ემატება;
+- covariate scaler fit ხდება მხოლოდ pre-validation fit dates-ზე;
+- validation future covariates გამოიყენება იმიტომ, რომ იგივე ტიპის future covariates test period-შიც გვაქვს `features.csv`-ში.
+
+v6-ის კითხვა:
+
+```text
+შეიძლება თუ არა external Walmart covariates-მა DLinear-ს v1-ზე უკეთესი შედეგი მისცეს?
+```
+
+თუ v6 არ აჯობებს v1-ს, DLinear-ის manual experiment phase დასრულებულია და inference უნდა გაკეთდეს v1 checkpoint/artifact-ით.
