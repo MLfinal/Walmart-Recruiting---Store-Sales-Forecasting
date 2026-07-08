@@ -63,6 +63,8 @@ DLinear არის მარტივი deep learning time-series მოდ�
 
 შენიშვნა: v1-ის იდეა იყო უფრო გრძელი context, მაგრამ რეალურად 104-week context ამ split-ზე შეუძლებელია training windows-ისთვის: pre-validation history არის 104 კვირა, ხოლო target horizon არის 39 კვირა. საჭიროა `input_weeks + 39 <= 104`. ამიტომ working v1 უნდა ჩაითვალოს როგორც 52-week DLinear + Store-Dept calibration.
 
+მნიშვნელოვანი დასკვნა: v1 არ არის “ყველაზე სუსტი” model. v1 არის პირველი manual improvement baseline-ზე, რომელმაც დაამატა Store-Dept calibration და validation WMAE მკაფიოდ გააუმჯობესა. შემდეგი versions უფრო რთული იყო, მაგრამ validation-ზე noise/overfit შემოიტანა და v1-ს ვერ აჯობა. ამიტომ final wording არის: **best observed DLinear run = v1**, არა “დამტკიცებულად globally optimal DLinear”.
+
 ## Train setup, რომელიც ყველა run-ში ერთნაირია
 
 ყველა DLinear run-ში ერთი და იგივე evaluation protocol გვაქვს:
@@ -675,7 +677,7 @@ v4: 1542.83
 - train loss მცირდებოდა, validation კი საუკეთესო იყო ადრე, epoch 7-ზე, რის შემდეგაც validation WMAE გაუარესდა;
 - Store/Dept decomposition შეიძლება ზედმეტად უხეშია, რადგან Walmart-ში კონკრეტული Store-Dept pair უფრო მნიშვნელოვანია, ვიდრე Store და Dept ცალ-ცალკე.
 
-დასკვნა: v4 rejected. საუკეთესო architecture კვლავ v1 რჩება.
+დასკვნა: v4 rejected. საუკეთესო observed architecture კვლავ v1 რჩება.
 
 ## შემდეგი v5: v1 refinement
 
@@ -940,14 +942,14 @@ v6: 1548.03
 - tree-based models უკეთ ამუშავებენ markdown/CPI/fuel/store metadata ტიპის tabular signal-ს;
 - covariate gate non-zero გახდა, მაგრამ ეს signal validation-ზე noise აღმოჩნდა.
 
-დასკვნა: v6 rejected. DLinear-ის საუკეთესო architecture კვლავ v1 რჩება.
+დასკვნა: v6 rejected. DLinear-ის საუკეთესო observed architecture კვლავ v1 რჩება.
 
 ## Hyperparameter tuning
 
-manual feature experiments დასრულებულია. შემდეგი ნაბიჯი არის არა ახალი feature branch, არამედ საუკეთესო architecture-ის tuning:
+manual feature experiments დასრულებულია. შემდეგი ნაბიჯი არის არა ახალი feature branch, არამედ საუკეთესო observed manual architecture-ის tuning:
 
 ```text
-best architecture = v1 = DLinear + Store-Dept series_bias
+best observed manual architecture = v1 = DLinear + Store-Dept series_bias
 ```
 
 Tuning notebook ცდის:
@@ -969,6 +971,30 @@ Colab-ისთვის tuning loop განზრახ მსუბუქი
 - W&B-ზე აღარ იქმნება ცალკე run თითო trial-ზე, ილოგება ერთი tuning run და trial summary table.
 
 თუ tuning-მა v1-ს აჯობა, inference გაკეთდება tuned checkpoint-ით. თუ tuning ვერ აჯობებს, inference გაკეთდება v1 checkpoint/artifact-ით.
+
+აქ ერთი მნიშვნელოვანი technical caveat გვაქვს: tuning-მა დატესტა v1 architecture, მაგრამ exact v1 hyperparameter recipe არ იყო guarantee-ით ჩასმული როგორც fixed first trial. ანუ Optuna-მ სცადა v1-style models, მაგრამ არ გაუშვია ზუსტად იგივე configuration:
+
+```text
+v1:
+input_weeks = 52
+batch_size = 512
+learning_rate = 0.0008
+weight_decay = 0.0002
+series_bias_weight_decay = 0.001
+moving_avg_kernel = 25
+```
+
+tuning search space-ში ეს მნიშვნელობები ნაწილობრივ იყო შესაძლებელი, მაგრამ sampled best trial სხვა იყო. ამიტომ tuning result სწორად უნდა წავიკითხოთ ასე:
+
+```text
+tuning did not beat the already saved v1 checkpoint
+```
+
+და არა ასე:
+
+```text
+tuning mathematically proved v1 hyperparameters are optimal
+```
 
 ### tuning results
 
@@ -1016,12 +1042,13 @@ Interpretation:
 - tuning-მ v1-ს ვერ აჯობა;
 - საუკეთესო tuned run ძალიან ახლოსაა v1-თან, მაგრამ validation-ზე მაინც `0.18%`-ით სუსტია;
 - `input_weeks=52` ისევ დადასტურდა როგორც უკეთესი არჩევანი, ვიდრე `39`;
-- `moving_avg_kernel=13` tuning-ში უკეთესი იყო, მაგრამ მთლიან შედეგში v1-ის original setup მაინც ძლიერია.
+- `moving_avg_kernel=13` tuning-ში საუკეთესო sampled trial-ში გამოვიდა, მაგრამ exact v1 setup tuning-ში fixed trial-ად არ ყოფილა;
+- tuning უფრო exploratory იყო: `8` trial, `35` max epoch, `patience=7`. v1 checkpoint-ს ჰქონდა საკუთარი training setup და saved result.
 
 Final DLinear model choice:
 
 ```text
-best overall = manual v1
+best observed DLinear run = manual v1
 WMAE = 1506.28
 ```
 
@@ -1062,7 +1089,7 @@ moving_avg_kernel = 13
 best_epoch = 15
 ```
 
-მაგრამ ამ configuration-მა v1-ს ვერ აჯობა, ამიტომ final inference default რჩება `manual_v1`.
+მაგრამ ამ configuration-მა saved v1 checkpoint-ს ვერ აჯობა, ამიტომ final inference default რჩება `manual_v1`. ეს არის practical model-selection decision: inference იყენებს საუკეთესო observed validation checkpoint-ს.
 
 Notebook-ის flow:
 
@@ -1099,6 +1126,6 @@ Final expectation:
 
 ```text
 Experiment phase: finished
-Best DLinear: manual v1
+Best observed DLinear: manual v1
 Next DLinear step: run dlinear_inference.ipynb on Colab and check W&B inference run/artifacts
 ```
