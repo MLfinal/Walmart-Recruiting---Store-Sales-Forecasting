@@ -960,4 +960,12 @@ Tuning notebook ცდის:
 - `batch_size`;
 - patience/scheduler იგივე ლოგიკით.
 
+Colab-ისთვის tuning loop განზრახ მსუბუქია:
+
+- default `n_trials=8`;
+- max `35` epoch თითო trial-ზე;
+- `num_workers=0`, რომ DataLoader thread-ებზე არ გაიჭედოს;
+- Optuna pruning იყენებს validation WMAE-ს;
+- W&B-ზე აღარ იქმნება ცალკე run თითო trial-ზე, ილოგება ერთი tuning run და trial summary table.
+
 თუ tuning-მა v1-ს აჯობა, inference გაკეთდება tuned checkpoint-ით. თუ tuning ვერ აჯობებს, inference გაკეთდება v1 checkpoint/artifact-ით.
