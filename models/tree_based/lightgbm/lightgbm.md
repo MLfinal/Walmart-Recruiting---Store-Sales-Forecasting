@@ -615,9 +615,9 @@ W&B curves აჩვენებს, რომ training L1 და validation L1 
 
 დაბალი learning rate-ის მქონე trial-ებში curves 100 iteration-ის შემდეგაც შორს იყო convergence-დან. მაღალი learning rate-ის მქონე trial-ებში curves უფრო სწრაფად flatten-დებოდა და უკეთეს score-ს აღწევდა.
 
-## მიმდინარე საუკეთესო შედეგი
+## ძველი საუკეთესო validation შედეგი unsafe lag/rolling feature-ებით
 
-საუკეთესო დალოგილი validation result:
+პირველი LightGBM ექსპერიმენტის საუკეთესო დალოგილი validation result იყო:
 
 ```text
 Validation Weighted MAE: 1573.4988
@@ -630,16 +630,105 @@ Best trial: 46
 lightgbm-optuna-trial-46
 ```
 
+ეს შედეგი validation-ზე ძალიან ძლიერი ჩანდა, მაგრამ Kaggle-ზე იგივე feature engineering-მა დაახლოებით `4700` score მისცა. ამის მთავარი მიზეზი იყო ის, რომ validation-ზე `lag_1`, `lag_4`, `lag_13` და rolling feature-ები რეალურ validation `Weekly_Sales` მნიშვნელობებზე იყო აგებული. Kaggle test-ზე future `Weekly_Sales` არ გვაქვს, ამიტომ იგივე feature availability არ არსებობს.
+
+ამიტომ `1573.4988` აღარ უნდა ჩაითვალოს final reliable validation score-ად. ის დარჩა როგორც ძველი ექსპერიმენტის შედეგი და საჭიროა comparison-ისთვის.
+
+## ახალი Safe SalesLag52 ექსპერიმენტი
+
+შემდეგ LightGBM გადავაკეთეთ XGBoost-ის მსგავსად:
+
+- ამოვიღეთ unsafe short lag feature-ები: `lag_1`, `lag_4`, `lag_13`;
+- ამოვიღეთ rolling mean/std feature-ები;
+- დავტოვეთ safe yearly lag: `SalesLag52`;
+- დავამატეთ `SalesLag52_available`;
+- historical aggregates training rows-ზე გადავიდა expanding/time-safe logic-ზე;
+- inference pipeline-ში registered model თავად ქმნის `SalesLag52`-ს stored observed history-დან.
+
+ახალი Optuna run-ის შედეგი:
+
+```text
+Number of finished trials: 50
+Best trial: 42
+Validation Weighted MAE: 1633.3693
+Validation MAE: 1620.2000
+Kaggle score: 3600
+```
+
+საუკეთესო hyperparameter-ები:
+
+```python
+{
+    "learning_rate": 0.0712359757088356,
+    "num_leaves": 227,
+    "max_depth": 16,
+    "min_child_samples": 77,
+    "subsample": 0.799399470346009,
+    "colsample_bytree": 0.8558722105232142,
+    "reg_alpha": 0.031819794172038236,
+    "reg_lambda": 0.01422823668758164,
+}
+```
+
+Best trial-ის final training log:
+
+```text
+[25]  train's l1: 4182.68  validation's l1: 3779.92
+[50]  train's l1: 2231.64  validation's l1: 1931.73
+[75]  train's l1: 1773.73  validation's l1: 1652.98
+[100] train's l1: 1643.72  validation's l1: 1623.56
+```
+
+### შედარება ძველ feature engineering-თან
+
+| ექსპერიმენტი | Validation WMAE | Kaggle score | შეფასება |
+| --- | ---: | ---: | --- |
+| ძველი lag/rolling FE | `1573.4988` | დაახლოებით `4700` | validation ძალიან optimistic იყო |
+| ახალი safe `SalesLag52` FE | `1633.3693` | დაახლოებით `3600` | validation ოდნავ უარესია, მაგრამ Kaggle ბევრად უკეთესი გახდა |
+
+Validation-ზე ახალი feature engineering ოდნავ უარესია:
+
+```text
+1573.4988 -> 1633.3693
+```
+
+ეს მოსალოდნელი იყო, რადგან მოდელს წავართვით ძლიერი, მაგრამ unsafe target-derived feature-ები. ძველი `lag_1`, `lag_4`, `lag_13` და rolling feature-ები validation period-ის რეალურ sales-ს ირიბად აწვდიდა მოდელს. ამიტომ validation score ხელოვნურად უკეთესი გამოდიოდა.
+
+Kaggle-ზე კი ახალი feature engineering მნიშვნელოვნად უკეთესია:
+
+```text
+4700 -> 3600
+```
+
+ეს ნიშნავს, რომ ახალი validation/inference setup უფრო რეალისტურია. მოდელი ახლა ეყრდნობა ისეთ feature-ებს, რომლებიც test set-ზეც ხელმისაწვდომია:
+
+- calendar features;
+- holiday/proximity features;
+- markdown features;
+- store/dept/type interactions;
+- historical aggregates training history-დან;
+- safe `SalesLag52`.
+
+### რატომ გახდა Kaggle უკეთესი, მიუხედავად იმისა რომ validation გაუარესდა
+
+ძველი validation score უკეთესი იყო, მაგრამ ის არ ასახავდა რეალურ Kaggle inference-ს. Validation-ზე model ხედავდა recent sales behavior-ს `lag_1`, `lag_4`, `lag_13` და rolling feature-ებით, Kaggle test-ზე კი ეს recent true sales არ არსებობს.
+
+ახალ ვერსიაში validation და Kaggle უფრო ერთნაირ წესს იყენებს: ორივეგან `SalesLag52` მოდის მხოლოდ observed history-დან. ამიტომ validation score ნაკლებად ლამაზია, მაგრამ Kaggle score უკეთესად ემთხვევა რეალურ performance-ს.
+
+დასკვნა:
+
+- ძველი feature engineering იყო validation-ზე ძლიერი, მაგრამ test-ზე unreliable.
+- ახალი feature engineering არის უფრო honest და Kaggle-safe.
+- final comparison-ში ახალი Safe `SalesLag52` model უნდა ჩაითვალოს უფრო სანდოდ, რადგან Kaggle score ბევრად გაუმჯობესდა.
+- შემდეგი გაუმჯობესება უნდა იყოს validation procedure-ის კიდევ უფრო დაახლოება Kaggle horizon-თან და possibly full-data retrain final submission-მდე.
+
 ## შენიშვნები და რისკები
 
-ძველი LightGBM validation result ოპტიმისტური იყო, რადგან lag/rolling feature-ები validation `Weekly_Sales` ინფორმაციაზე იყო დამოკიდებული. ეს იყო მთავარი მიზეზი, რატომაც validation WMAE დაახლოებით `1600` იყო, ხოლო Kaggle score ბევრად უარესი გამოვიდა.
+მიმდინარე safe feature engineering-მა Kaggle score გააუმჯობესა, მაგრამ `3600` ჯერ კიდევ ჩამორჩება XGBoost-ის დაახლოებით `2800` score-ს. ეს ნიშნავს, რომ LightGBM pipeline უკვე უფრო სწორია, მაგრამ ჯერ კიდევ შეიძლება გაუმჯობესება.
 
-მიმდინარე ვერსიაში unsafe lag/rolling feature-ები ამოღებულია და დარჩა მხოლოდ safe `SalesLag52`, რომელიც observed history-დან ითვლება. ამის შემდეგ საჭიროა notebook-ის თავიდან გაშვება:
+მთავარი დარჩენილი რისკები:
 
-1. Feature engineering cell.
-2. Feature selection cell.
-3. Optuna training cell.
-4. Best model registration cell.
-5. `lightgbm_inference.ipynb`-ით ახალი submission-ის დაგენერირება.
-
-ახალი validation score სავარაუდოდ ძველ `1573.4988`-ზე უარესი იქნება, მაგრამ Kaggle score-ს უფრო რეალისტურად უნდა დაემთხვეს. ეს უკეთესი setup-ია final submission-ისთვის, რადგან validation და test inference ერთნაირ feature availability-ს იყენებს.
+1. Validation split არის last 32 weeks, მაგრამ Kaggle test horizon და distribution შეიძლება უფრო რთული იყოს.
+2. `n_estimators = 100` fixed არის; საუკეთესო trial-ების curves ხშირად 100 iteration-მდე ჯერ კიდევ იკლებდა, ამიტომ `n_estimators`/early stopping tuning შეიძლება დაგვეხმაროს.
+3. Historical aggregates ჯერ კიდევ ძლიერ signal-ს იძლევა, ამიტომ final inference-ზე უნდა დავრწმუნდეთ, რომ registry pipeline მხოლოდ training history-ს იყენებს.
+4. Full-data retrain final submission-მდე ჯერ ცალკე უნდა გადაწყდეს, რადგან validation comparison-ისთვის time split აუცილებელია.
