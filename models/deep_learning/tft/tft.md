@@ -367,6 +367,90 @@ alpha comparison:
 
 v5-მა დააზუსტა v4-ის დასკვნა: TFT-ის residual correction საჭიროა, მაგრამ არა სრულად. საუკეთესო ზონა `0.40–0.45` აღმოჩნდა. ეს ნიშნავს, რომ seasonal baseline რჩება პროგნოზის მთავარი ნაწილი, ხოლო TFT უკეთ მუშაობს როგორც correction model, რომელსაც კონტროლირებადი წონა აქვს.
 
+## v6 — serious full-data train
+
+v5-ის შემდეგ გაჩნდა სწორი კითხვა: შეიძლება TFT უბრალოდ საკმარისად დიდხანს ან საკმარისად დიდ data-ზე არ ვწვრთნიდით? ამიტომ v6-ში უკვე პატარა top-500 experiment აღარ გავაკეთეთ. მიზანი იყო შეგვემოწმებინა, გაუმჯობესდება თუ არა residual TFT, თუ მას მივცემთ მეტ series-ს, მეტ yearly context-ს, მეტ capacity-ს და ბევრად დიდ training budget-ს.
+
+v6-ის configuration:
+
+```text
+top_n_series = 4000
+actual n_series = 3331
+encoder_weeks = 52
+validation_weeks = 39
+batch_size = 512
+max_epochs = 50
+patience = 8
+max_time_minutes = 240
+limit_train_batches = 1.0
+limit_val_batches = 1.0
+hidden_size = 24
+hidden_continuous_size = 12
+attention_head_size = 2
+dropout = 0.10
+blend_alphas = [0.30, 0.35, 0.40, 0.45, 0.50]
+```
+
+`top_n_series = 4000` რეალურად full-data რეჟიმია, რადგან dataset-ში `3331` Store-Dept series აღმოჩნდა. training data აღარ შეიკვეცა:
+
+```text
+train_rows_before = 421570
+train_rows_after = 421570
+training_samples = 116736
+validation_samples = 2938
+train_batches_total = 228
+validation_batches_total = 6
+model_parameters = 81965
+```
+
+W&B run:
+
+```text
+https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/bsywwipw
+```
+
+Notebook output-ის მიხედვით run-მა მიაღწია:
+
+```text
+epoch = 8
+trainer/global_step = 2051
+best_checkpoint = tft-v6-epoch=00-val_loss=10628.5859.ckpt
+best_val_loss = 10628.5859
+seasonal_naive_wmae = 1604.27
+prediction_rows = 114582
+```
+
+ზუსტი wall-clock duration notebook output-ში არ არის შენახული. რაც ჩანს: v6 აღარ იყო 10–25 წუთიანი პატარა run; მან full-data რეჟიმში 9 epoch-მდე (`0`-დან `8`-მდე) და `2051` optimizer step-მდე მივიდა. Training-ს ჰქონდა `240` წუთიანი hard cap, მაგრამ output-იდან ზუსტად ვერ ვამბობთ, early stopping-მა გააჩერა თუ runtime cap-მა.
+
+მთავარი შედეგი ის არის, რომ v6 valid model result არ გახდა. Evaluation-ში ყველა WMAE გახდა `NaN`:
+
+```text
+validation_wmae_full_residual_alpha_1 = NaN
+best_blend_alpha = 0.30
+best_blend_wmae = NaN
+best_blend_improvement_vs_seasonal_naive_pct = NaN
+```
+
+alpha comparison-იც მთლიანად invalid გამოვიდა:
+
+| alpha | WMAE |
+|---:|---:|
+| 0.30 | NaN |
+| 0.35 | NaN |
+| 0.40 | NaN |
+| 0.45 | NaN |
+| 0.50 | NaN |
+
+ეს ნიშნავს, რომ v6-ის prediction/evaluation chain-ში non-finite values გაჩნდა. რადგან `prediction_rows = 114582` შეიქმნა, alignment მთლიანად არ ჩამოშლილა; პრობლემა უფრო likely არის prediction values-ში ან reconstruction-ში, სადაც ერთი ან მეტი `NaN` მთელ WMAE-ს `NaN`-ად აქცევს. ამ run-ს leaderboard-style comparison-ში ვერ ჩავთვლით.
+
+v6-მა მაინც მნიშვნელოვანი ინფორმაცია მოგვცა:
+
+- full-data serious train ავტომატურად უკეთესი არ გახდა;
+- larger model (`41K` → `82K` parameter) და full panel საკმარისი არ იყო stable residual prediction-ისთვის;
+- best validation checkpoint epoch `0`-ზე დარჩა, ხოლო შემდეგი validation loss-ები გაუარესდა;
+- full-data validation-ზე seasonal naive ბევრად ძლიერი reference გამოვიდა (`1604.27`), ამიტომ top-500 შედეგებთან პირდაპირი შედარება არ შეიძლება;
+- v5 რჩება საუკეთესო valid TFT run-ად, რადგან იქ WMAE finite და უკეთესი იყო seasonal naive-ზე.
+
 ## შედეგების მოკლე ცხრილი
 
 | Run | Subset | იდეა | WMAE | დასკვნა |
@@ -380,5 +464,6 @@ v5-მა დააზუსტა v4-ის დასკვნა: TFT-ის r
 | v3 fixed | top 500 | residual + correct 52-week lookup | 5212.71 | residual signal useful, მაგრამ full correction ზედმეტია |
 | v4 | top 500 | residual blending, alpha=0.50 | 4728.60 | best TFT so far და seasonal naive-ზე უკეთესი |
 | v5 | top 500 | fine residual blending, alpha=0.40 | 4717.71 | best TFT so far |
+| v6 | full 3331 series | serious full-data train | NaN | invalid evaluation / non-finite predictions |
 
-ამ ეტაპზე საუკეთესო valid TFT არის v5. მთავარი გაკვეთილი ასეთია: TFT-სთვის full sales-ის სწავლა რთული აღმოჩნდა, log target-მა WMAE გააუარესა, seasonal residual-მა მოდელი seasonal naive-სთან დააახლოვა, ხოლო residual blending-მა correction-ის ძალა გააკონტროლა. v4-ში WMAE `4728.60` იყო, v5-ში კი fine alpha search-მა `4717.71`-მდე ჩამოიყვანა.
+ამ ეტაპზე საუკეთესო valid TFT არის v5. მთავარი გაკვეთილი ასეთია: TFT-სთვის full sales-ის სწავლა რთული აღმოჩნდა, log target-მა WMAE გააუარესა, seasonal residual-მა მოდელი seasonal naive-სთან დააახლოვა, ხოლო residual blending-მა correction-ის ძალა გააკონტროლა. v4-ში WMAE `4728.60` იყო, v5-ში კი fine alpha search-მა `4717.71`-მდე ჩამოიყვანა. v6-მა გვაჩვენა, რომ უბრალოდ data/model/training budget-ის გაზრდა საკმარისი არ არის; full-data TFT-ს stability guard სჭირდება, რადგან non-finite prediction-ებმა validation metric გააფუჭა.
