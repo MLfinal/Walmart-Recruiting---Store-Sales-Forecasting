@@ -619,3 +619,52 @@ MedianPruner warmup = 3 epochs
 ```
 
 ეს ვერსია უფრო სწრაფად უნდა გაეშვას და მიზანია სწრაფად ვნახოთ, არის თუ არა N-BEATS-ის tuning-ში baseline-ზე უკეთესი signal.
+
+## Kaggle submission ანალიზი
+
+Final Kaggle submission-ზე N-BEATS-ის score მივიღე:
+
+```text
+Kaggle score: 4700
+```
+
+Validation-ზე საუკეთესო observed result იყო baseline configuration:
+
+```text
+Baseline best WMAE = 2157.9829
+```
+
+Kaggle-ზე score ბევრად გაუარესდა. ჩემი აზრით, მთავარი მიზეზი არის ის, რომ N-BEATS validation უფრო მარტივ და კონტროლირებულ forecast setup-ს ამოწმებდა, ხოლო Kaggle test-ზე მოდელს უფრო რთული future horizon დახვდა.
+
+რატომ გაუარესდა Kaggle-ზე:
+
+- N-BEATS prediction დიდად ეყრდნობა ბოლო historical window-ს.
+- თუ test horizon გრძელია, forecast error დროთა განმავლობაში გროვდება.
+- მოდელს არ აქვს explicit holiday, markdown, store metadata და external feature context ისეთი ფორმით, როგორც tree-based models-ს.
+- Walmart sales-ში promotion/holiday effect ძალიან ძლიერია, მაგრამ pure historical neural model ამას ბოლომდე ვერ იჭერს.
+- ბევრი Store-Dept series sparse/noisy არის, რაც N-BEATS-ს რთულს ხდის.
+
+რატომ იყო baseline უკეთესი Optuna-ზე:
+
+Optuna-ს პირველმა trial-ებმა baseline ვერ გააუმჯობესა:
+
+```text
+Best partial Optuna WMAE = 2191.4117
+Baseline best WMAE = 2157.9829
+```
+
+ჩემი შეფასებით, tuning-მა ვერ იპოვა ისეთი configuration, რომელიც N-BEATS-ს ამ dataset-ზე რეალურად გააძლიერებდა. სავარაუდოდ პრობლემა მარტო hyperparameter-ებში არ არის; თვითონ architecture ამ კონკრეტულ tabular+holiday forecasting task-ს ნაკლებად ერგება, თუ მას external covariates არ დავუმატებთ.
+
+შედარება სხვა მოდელებთან:
+
+```text
+N-BEATS Kaggle score = 4700
+DLinear Kaggle score = 3500
+XGBoost Kaggle score = 2806
+```
+
+N-BEATS ყველაზე სუსტი გამოვიდა ამ სამიდან. ჩემი დასკვნა არის, რომ Walmart competition-ში მხოლოდ neural sequence model საკმარისი არ არის. საჭიროა ისეთი feature-ები, რომლებიც ბიზნეს context-ს აღწერს: holiday proximity, markdowns, store/dept identity, yearly lag და historical aggregates.
+
+საბოლოო დასკვნა:
+
+N-BEATS კარგი baseline იყო deep learning ექსპერიმენტისთვის, მაგრამ final model candidate-ად არ ავირჩევდი. მისი Kaggle score აჩვენებს, რომ ამ ამოცანაში feature-rich tree-based approach უფრო საიმედოა.

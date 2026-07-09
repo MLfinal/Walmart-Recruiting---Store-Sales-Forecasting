@@ -7,6 +7,45 @@
 
 ორივე მოდელი ერთი ამოცანისთვის გამოიყენება: Walmart-ის weekly sales forecasting. ორივე მუშაობს tabular ფორმატზე, იყენებს `train.csv`, `features.csv`, `stores.csv`, `test.csv` მონაცემებს და ორივეს საბოლოო მიზანია Kaggle-ისთვის `Weekly_Sales` prediction-ის გენერირება. მთავარი metric ყველგან არის WMAE, რადგან competition holiday week-ებს 5-ჯერ მეტ წონას აძლევს.
 
+## Final Kaggle submission შედარება
+
+Tree-based მიმართულებაში final Kaggle submission-ებმა ასეთი შედეგი მისცა:
+
+```text
+XGBoost Kaggle score  = 2806
+LightGBM Kaggle score = 3600
+```
+
+ჩემი შეფასებით, საბოლოო Kaggle შედეგით XGBoost უკეთესი გამოვიდა. ეს არ ნიშნავს, რომ XGBoost-ის architecture თავისთავად ყოველთვის LightGBM-ზე უკეთესია. ორივე gradient boosted tree family-ს ეკუთვნის და ორივე კარგად მუშაობს tabular forecasting-ზე. ამ კონკრეტულ პროექტში XGBoost-ის უპირატესობა უფრო მეტად მოვიდა pipeline/design ნაწილიდან:
+
+- XGBoost-ის feature engineering თავიდანვე უფრო Kaggle-safe იყო;
+- XGBoost იყენებდა safe `SalesLag52` yearly lag-ს და არა future sales-ზე დამოკიდებულ short lag/rolling feature-ებს;
+- XGBoost raw-input pipeline უფრო self-contained იყო: test inference-ში preprocessing logic, training history, aggregate mappings და feature order ერთ artifact-ში იყო მოქცეული;
+- validation/inference behavior უკეთ ემთხვეოდა ერთმანეთს;
+- LightGBM-ის პირველმა ვერსიამ validation-ზე უკეთესი WMAE აჩვენა, მაგრამ Kaggle-ზე ცუდად generalized, რადგან unsafe lag/rolling feature-ები validation score-ს ზედმეტად ალამაზებდა.
+
+LightGBM-ის safe `SalesLag52` retrain-მა Kaggle score გააუმჯობესა:
+
+```text
+LightGBM old unsafe setup ≈ 6200
+LightGBM safe SalesLag52 setup ≈ 3600
+```
+
+მაგრამ XGBoost მაინც უკეთესი დარჩა:
+
+```text
+XGBoost = 2806
+LightGBM = 3600
+```
+
+ჩემი დასკვნა ასეთია: XGBoost-მა მოიგო არა მხოლოდ model architecture-ის გამო, არამედ იმიტომ, რომ მისი feature engineering და inference contract უფრო სწორად იმეორებდა რეალურ Kaggle test სიტუაციას. LightGBM validation-ზე ძლიერი იყო, მაგრამ final Kaggle-ზე XGBoost-ის pipeline უფრო საიმედო აღმოჩნდა.
+
+პრაქტიკული არჩევანი:
+
+- **Final tree-based champion:** XGBoost.
+- **Reason:** უკეთესი Kaggle generalization და უფრო სუფთა raw-input inference pipeline.
+- **LightGBM status:** ძლიერი candidate, მაგრამ საჭიროებს დამატებით tuning-ს და validation-test mismatch-ის შემცირებას.
+
 ## საერთო სურათი
 
 | ნაწილი | XGBoost | LightGBM |
@@ -15,12 +54,13 @@
 | Validation | chronological split; 52 კვირა baseline/tuning-ში, შემდეგ 32 კვირა final candidate-ში | chronological split; 32 კვირა |
 | Feature engineering | feature-rich raw-input transformer, 81 feature | sklearn-style feature pipeline, 82 feature → 47 selected |
 | Tuning | Optuna, 20 trial | Optuna, 50 trial |
-| Best validation result | `1612.13` WMAE final candidate, 32 კვირა | `1573.50` WMAE best Optuna trial, 32 კვირა |
+| Best validation result | `1612.13` WMAE final candidate, 32 კვირა | old unsafe: `1573.50`; new safe: `1633.37` |
+| Kaggle score | `2806` | `3600` |
 | Registered artifact | `Walmart_XGBoost_Pipeline:champion` | `Walmart_LightGBM_Pipeline:champion` |
-| Inference style | raw `test.csv` პირდაპირ pipeline-ში | train history + test ერთად transform lag/rolling feature-ებისთვის |
-| Inference run | `7991kiez` | `ychwtp0l` |
+| Inference style | raw `test.csv` პირდაპირ pipeline-ში | registered bundle ქმნის safe `SalesLag52`-ს stored history-დან |
+| Inference run | `7991kiez` | latest registry inference run |
 
-რიცხვების შედარებისას ყველაზე ფრთხილი ნაწილი validation window-ია. LightGBM-ის მთავარი შედეგი 32-კვირიან split-ზეა. XGBoost-ს აქვს როგორც 52-კვირიანი comparison (`1935.97`), ისე 32-კვირიანი final candidate (`1612.13`). ამიტომ LightGBM `1573.50` და XGBoost `1612.13` ერთმანეთთან უფრო ახლოს შესადარებელია, ვიდრე XGBoost-ის 52-კვირიანი `1935.97`.
+რიცხვების შედარებისას ყველაზე ფრთხილი ნაწილი validation window და feature availability-ია. LightGBM-ის ძველი `1573.50` validation result მიღებული იყო unsafe lag/rolling feature-ებით და Kaggle-ზე კარგად არ გადავიდა. ახალი safe LightGBM validation result `1633.37` ოდნავ უარესია, მაგრამ Kaggle-ზე ბევრად უკეთესი აღმოჩნდა. Final tree-based არჩევაში Kaggle score უფრო მნიშვნელოვანია, ამიტომ ამ ეტაპზე XGBoost ლიდერობს.
 
 ## 1. Baseline ეტაპი
 
@@ -217,23 +257,29 @@ LightGBM-ის pattern XGBoost-ისგან განსხვავებ�
 | XGBoost baseline | 52 კვირა | 22 static feature | არა | `2902.29` | median-ზე უკეთესი |
 | XGBoost engineered | 52 კვირა | 81 feature | 20 trial | `1935.97` | baseline-ზე დიდი improvement |
 | XGBoost final candidate | 32 კვირა | 81 feature | selected params | `1612.13` | LightGBM split-თან უფრო შესადარებელი |
-| LightGBM engineered | 32 კვირა | 82 → 47 selected feature | 50 trial | `1573.50` | საუკეთესო tree-based validation score |
-| LightGBM registered pipeline | 32 კვირა | selected features + saved pipeline | champion artifact | `1575.94` | registry-ში შენახული champion version |
+| LightGBM engineered old | 32 კვირა | unsafe lag/rolling + selected features | 50 trial | `1573.50` | validation optimistic იყო |
+| LightGBM safe retrain | 32 კვირა | safe `SalesLag52` + selected features | 50 trial | `1633.37` | Kaggle-ზე უკეთ generalized |
 
 ამ ცხრილში მთავარი comparison არის:
 
 ```text
 XGBoost final candidate: 1612.13
-LightGBM best training trial: 1573.50
-LightGBM registered champion: 1575.94
+LightGBM old unsafe validation: 1573.50
+LightGBM safe validation: 1633.37
+XGBoost Kaggle: 2806
+LightGBM Kaggle: 3600
 ```
 
-LightGBM ოდნავ უკეთესი გამოვიდა 32-კვირიან validation-ზე. სავარაუდო მიზეზები:
+ძველ LightGBM-ს validation-ზე უკეთესი რიცხვი ჰქონდა, მაგრამ ეს შედეგი Kaggle-ზე არ დადასტურდა. safe retrain-ის შემდეგ LightGBM validation ოდნავ გაუარესდა, მაგრამ Kaggle score გაუმჯობესდა. ამის მიზეზი იყო feature leakage-ის შემცირება.
 
-1. LightGBM categorical feature-ებს native-ად უკეთ იყენებს ამ dataset-ში.
+LightGBM-ის ძლიერი მხარეები მაინც დარჩა:
+
+1. LightGBM categorical feature-ებს native-ად კარგად იყენებს.
 2. Feature selection-მა noisy/zero-importance feature-ები მოაშორა.
-3. 50 Optuna trial-მა search space უფრო ფართოდ დაფარა, ვიდრე XGBoost-ის 20 trial.
-4. LightGBM-ის leaf-wise tree growth კარგად ერგება Store/Dept-level heterogeneous patterns-ს.
+3. 50 Optuna trial-მა search space ფართოდ დაფარა.
+4. Leaf-wise tree growth კარგად ერგება Store/Dept-level heterogeneous patterns-ს.
+
+მაგრამ XGBoost-ს საბოლოოდ უკეთესი Kaggle generalization ჰქონდა.
 
 მაგრამ XGBoost-საც ძლიერი მხარე ჰქონდა: raw-input pipeline უფრო self-contained გამოვიდა. XGBoost pipeline საკუთარ თავში ინახავს external feature table-ს, stores metadata-ს, observed training history-ს, aggregate mappings-ს და final feature order-ს, ამიტომ inference notebook მხოლოდ `test.csv`-ს კითხულობს.
 
@@ -268,16 +314,17 @@ XGBoost-ში W&B job types უფრო detailed იყო:
 |---|---|---|
 | `llzq416u` | feature engineering | 82 feature, train/validation profile |
 | `i4n1gdp7` | feature selection | 82 → 47 selected feature |
-| `lightgbm-optuna-trial-46` | best Optuna trial | `1573.50` WMAE |
+| `lightgbm-optuna-trial-46` | old unsafe Optuna best | `1573.50` validation WMAE, Kaggle-ზე unreliable |
+| `lightgbm-optuna-trial-42` | safe Optuna best | `1633.37` validation WMAE, Kaggle `3600` |
 | `LightGBM_Best_Model_Registry` | registry packaging | `Walmart_LightGBM_Pipeline` |
-| `ychwtp0l` | inference | champion pipeline → submission |
+| latest inference run | inference | safe registry pipeline → Kaggle submission |
 
 LightGBM-ის inference artifact-ში ჩანს:
 
 ```text
 artifact = Walmart_LightGBM_Pipeline:champion
 artifact_version = v0
-validation_weighted_mae = 1575.9437
+validation_weighted_mae = 1633.3693
 selected_features = 47
 submission_rows = 115064
 ```
@@ -337,21 +384,25 @@ Pipeline file:
 lightgbm_best_pipeline.pkl
 ```
 
-LightGBM-ის მნიშვნელოვანი განსხვავება ის არის, რომ registered feature pipeline ჯერ კიდევ historical `Weekly_Sales`-ს იყენებს lag/rolling feature-ებისთვის. ამიტომ inference-ში notebook აკეთებს:
+LightGBM-ის ძველი inference flow train history + test rows ერთად transform-ს აკეთებდა, რადგან lag/rolling feature-ებს history სჭირდებოდა. safe retrain-ის შემდეგ registered bundle უფრო სუფთა გახდა: ის stored observed history-ს ინახავს და `predict()` დროს თვითონ ქმნის safe `SalesLag52` feature-ს.
 
 ```text
-train history rows + test rows
+raw test rows + stores/features merge
     ↓
-feature_pipeline.transform(combined_rows)
+registered LightGBM bundle
     ↓
-keep only transformed test rows
+stored observed history → SalesLag52
     ↓
-pipeline.model.predict(selected_features)
+feature_pipeline.transform(...)
+    ↓
+selected feature order
+    ↓
+model.predict(...)
     ↓
 submission_lightgbm_registry.csv
 ```
 
-ეს სწორია, რადგან lag/rolling feature-ებს history სჭირდება. მაგრამ operationally XGBoost-ზე ოდნავ ნაკლებად self-contained არის, რადგან inference notebook-ს `train.csv`, `features.csv`, `stores.csv` და `test.csv` ერთად სჭირდება. XGBoost-ის inference flow ამ მხრივ უფრო მარტივია: registered pipeline-ში მეტი state არის ჩაშენებული.
+ეს ძველ flow-ზე უკეთესია, რადგან inference აღარ ეყრდნობა future `Weekly_Sales`-ზე დამოკიდებულ rolling/short-lag feature-ებს. მიუხედავად ამისა, XGBoost-ის pipeline მაინც უფრო სუფთა და უფრო ადრე დამტკიცებული raw-input contract იყო.
 
 LightGBM inference run:
 
@@ -383,40 +434,47 @@ prediction_max = 179720.57
 | Feature count | 81 final features | 82 engineered → 47 selected |
 | Tuning behavior | low learning rate + many rounds worked well | high learning rate needed because 100 estimators fixed |
 | Best tree shape | deep trees, strong L2 regularization | many leaves, deep trees, high min_child_samples |
-| Inference portability | more self-contained raw-input sklearn Pipeline | needs train history + test together for lag/rolling transform |
+| Inference portability | more self-contained raw-input sklearn Pipeline | registry bundle owns history and creates safe `SalesLag52` |
 | Registry artifact | raw pipeline with feature transformer + model | bundle with feature_pipeline, selected_features, model |
-| Best documented score | `1612.13` on 32-week validation | `1573.50` best trial; `1575.94` registered champion |
+| Best documented score | `1612.13` validation; `2806` Kaggle | `1633.37` safe validation; `3600` Kaggle |
 
-## 7. რატომ მიიღო LightGBM-მ უკეთესი validation score
+## 7. რატომ ჩანდა LightGBM უკეთესი validation-ზე, მაგრამ XGBoost გახდა უკეთესი Kaggle-ზე
 
-LightGBM-ის უკეთესი score სავარაუდოდ ერთი მიზეზით არ აიხსნება. რამდენიმე ფაქტორი ერთად მოქმედებს:
+LightGBM-ის ძველი უკეთესი validation score ერთი მიზეზით არ აიხსნება. რამდენიმე ფაქტორი ერთად მოქმედებდა:
 
 - LightGBM native categorical handling ამ dataset-ში სასარგებლოა, რადგან `Store`, `Dept`, `Type` ძალიან ძლიერი identity signal-ებია.
 - Feature selection-მა feature space გაასუფთავა: 82-დან 47 feature დარჩა.
 - Optuna-ს 50 trial უფრო ფართო search იყო.
 - LightGBM-ის leaf-wise growth კარგად იჭერს heterogeneous demand patterns-ს.
-- Validation split 32 კვირაა, სადაც historical/lag/rolling feature-ები ძალიან ძლიერად მუშაობს.
+- ძველ setup-ში validation split-ზე historical/lag/rolling feature-ები ზედმეტად ძლიერად მუშაობდა, რადგან validation `Weekly_Sales` უკვე ცნობილი იყო.
 
-მაგრამ ეს არ ნიშნავს, რომ XGBoost სუსტია. XGBoost feature-rich მოდელმა 52-კვირიან validation-ზე baseline `2902.29`-დან `1935.97`-მდე ჩამოიყვანა WMAE, ხოლო 32-კვირიან final candidate-ზე `1612.13` მიიღო. XGBoost-ის pipeline design უფრო გამართულია raw test portability-ის მხრივ.
+მაგრამ ეს არ ნიშნავს, რომ XGBoost სუსტია. XGBoost feature-rich მოდელმა 52-კვირიან validation-ზე baseline `2902.29`-დან `1935.97`-მდე ჩამოიყვანა WMAE, ხოლო 32-კვირიან final candidate-ზე `1612.13` მიიღო. ყველაზე მნიშვნელოვანი კი ის არის, რომ XGBoost Kaggle-ზე `2806` score-მდე მივიდა.
+
+ჩემი დასკვნით, XGBoost უკეთესი იყო არა მხოლოდ architecture-ის გამო. მთავარი იყო:
+
+- safe yearly history feature;
+- ნაკლები validation-test mismatch;
+- raw-input pipeline-ის უკეთესი contract;
+- უფრო მკაცრი leakage control;
+- inference-ზე preprocessing drift-ის ნაკლები რისკი.
 
 ## 8. საბოლოო დასკვნა
 
 Tree-based მიმართულებაში ორივე მოდელმა ერთი და იგივე ძირითადი ამბავი აჩვენა: Walmart forecasting-ში მთავარი signal არის Store/Dept historical level + yearly seasonality + holiday/promotion context. Model choice მნიშვნელოვანია, მაგრამ feature design კიდევ უფრო მნიშვნელოვანია.
 
-ამ ეტაპზე validation score-ით LightGBM ლიდერობს:
+ამ ეტაპზე Kaggle score-ით XGBoost ლიდერობს:
 
 ```text
-LightGBM best trial WMAE = 1573.50
-LightGBM registered champion WMAE = 1575.94
-XGBoost final candidate WMAE = 1612.13
+XGBoost Kaggle score = 2806
+LightGBM Kaggle score = 3600
 ```
 
-inference portability-ით XGBoost-ის pipeline უფრო სუფთაა, რადგან raw `test.csv`-ს პირდაპირ იღებს. LightGBM-ს უკეთესი score აქვს, მაგრამ inference-ში train history-საც იყენებს lag/rolling feature-ების უსაფრთხოდ შესაქმნელად.
+validation-ზე LightGBM-ის ძველი result უფრო ლამაზი იყო, მაგრამ final Kaggle-ზე XGBoost უკეთ generalized. ამიტომ practical decision-ში XGBoost უნდა ჩაითვალოს tree-based champion-ად.
 
 ამიტომ tree-based comparison-ის practical conclusion ასეთია:
 
-- **Best validation score:** LightGBM.
+- **Best Kaggle score:** XGBoost.
 - **Cleanest raw-input inference contract:** XGBoost.
+- **Best old validation score:** LightGBM, მაგრამ unsafe feature setup-ით.
 - **Common winning idea:** historical aggregates + yearly lag + holiday-aware features.
 - **Production requirement:** W&B Registry artifact უნდა იყოს inference-ის წყარო, არა ხელით გადაწერილი preprocessing.
-

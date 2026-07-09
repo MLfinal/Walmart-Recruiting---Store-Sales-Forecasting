@@ -1129,3 +1129,36 @@ Experiment phase: finished
 Best observed DLinear: manual v1
 Next DLinear step: run dlinear_inference.ipynb on Colab and check W&B inference run/artifacts
 ```
+
+## Kaggle submission ანალიზი
+
+Final Kaggle submission-ზე DLinear-ის score მივიღე:
+
+```text
+Kaggle score: 3500
+```
+
+ჩემი შეფასებით, ეს შედეგი validation score-თან შედარებით სუსტად გამოიყურება, რადგან validation-ზე DLinear ძალიან ძლიერად ჩანდა:
+
+```text
+Best validation WMAE = 1506.28
+```
+
+მაგრამ Kaggle-ზე score `3500` გახდა. ეს განსხვავება ჩემთვის ნიშნავს, რომ validation setup ბოლომდე არ იმეორებდა Kaggle test-ის სირთულეს. DLinear კარგად იჭერს trend/seasonality-ს თითო Store-Dept series-ზე, მაგრამ Kaggle horizon-ზე forecast უკვე უფრო შორს მიდის და uncertainty იზრდება.
+
+რატომ გამოვიდა DLinear უკეთესი, ვიდრე N-BEATS:
+
+- DLinear უფრო მარტივი და სტაბილური არქიტექტურაა.
+- Walmart data-ში ბევრი series-ს აქვს ძლიერი yearly/linear pattern, რაც DLinear-ს კარგად ერგება.
+- მოდელი არ ცდილობს ზედმეტად რთული nonlinear representation-ის სწავლას მცირე ისტორიული ფანჯრიდან.
+- Store-Dept `series_bias` ეხმარება თითოეული series-ის საშუალო sales level-ის დაჭერაში.
+
+რატომ ვერ აჯობა XGBoost-ს:
+
+- DLinear ძირითადად time-series signal-ს ეყრდნობა, ხოლო XGBoost უკეთ იყენებს tabular context-ს: holidays, markdowns, store metadata, external features.
+- Kaggle test-ზე promotion/holiday behavior შეიძლება ისეთი იყოს, რასაც მხოლოდ linear decomposition ვერ დაიჭერს.
+- DLinear forecast horizon-ზე error გროვდება, განსაკუთრებით იმ Store-Dept series-ებში, სადაც sales არასტაბილურია.
+
+ჩემი დასკვნა:
+
+DLinear აღმოჩნდა საუკეთესო deep learning მიმართულებიდან, მაგრამ tree-based მოდელებს მაინც ჩამორჩა. ამ dataset-ზე tabular feature engineering უფრო მნიშვნელოვანი აღმოჩნდა, ვიდრე მხოლოდ neural forecasting architecture. DLinear-ის `3500` score მისაღები და შედარებით სტაბილურია, მაგრამ საბოლოო Kaggle submission-ისთვის XGBoost უკეთესი candidate ჩანს.

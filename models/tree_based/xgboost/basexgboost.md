@@ -14,6 +14,16 @@
 - საუკეთესო იტერაცია: **2999**
 - W&B run: [xgboost-static-baseline](https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/pc46skfo)
 
+## Kaggle submission შენიშვნა
+
+Final XGBoost pipeline-მა Kaggle-ზე მიიღო:
+
+```text
+Kaggle score: 2806
+```
+
+ეს baseline notebook-ის validation WMAE-ს პირდაპირ არ უდრის, რადგან final submission უკვე უფრო განვითარებული feature set-ით და registry pipeline-ით იყო გაშვებული. ჩემთვის მთავარი დასკვნა არის ის, რომ XGBoost-მა ყველაზე კარგად გადაიტანა validation logic Kaggle test-ზე. LightGBM safe retrain-მა `3600` score მიიღო, DLinear-მა `3500`, N-BEATS-მა კი `4700`; ამ შედარებაში XGBoost ყველაზე საიმედო აღმოჩნდა.
+
 ## მონაცემებისა და მოდელის ნაკადი
 
 ```text
