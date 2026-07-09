@@ -250,6 +250,68 @@ prediction_rows = 19500
 
 ამჟამინდელი `model_experiment_TFT.ipynb` არის fixed residual version. ძველი invalid v3 შედეგი README-ში დარჩა როგორც training story-ის ნაწილი, რადგან ზუსტად იმ output-მა გვაჩვენა implementation bug.
 
+## v4 — residual blending
+
+v3 fixed-ის შემდეგ უკვე ვიცოდით, რომ TFT-ის residual correction სასარგებლო იყო, მაგრამ `alpha = 1.0` ანუ სრული correction seasonal naive-ს აუარესებდა. ამიტომ v4-ში training architecture არ შეგვიცვლია. იგივე residual TFT გავუშვით და validation-ზე დავამატეთ post-processing comparison:
+
+```text
+Prediction(alpha) = SeasonalNaive52 + alpha * PredictedResidual
+```
+
+ამით ერთდროულად შევამოწმეთ, რამდენად უნდა ვენდოთ TFT-ის correction-ს:
+
+```text
+alpha = 0.00 -> pure seasonal naive
+alpha = 0.25 -> TFT correction-ის 25%
+alpha = 0.50 -> TFT correction-ის 50%
+alpha = 0.75 -> TFT correction-ის 75%
+alpha = 1.00 -> full residual TFT, იგივე v3 reconstruction
+```
+
+notebook-ში v4 უკვე ცალკე experiment-ადაა დალოგილი:
+
+```text
+run_name = tft_v4_residual_blending_external_covariates
+artifact_name = tft-v4-residual-blending-external-covariates
+```
+
+W&B run:
+
+```text
+https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/bk5a1tph
+```
+
+v4-ის full residual შედეგი პრაქტიკულად v3-ის მსგავსი გამოვიდა:
+
+```text
+validation_wmae_full_residual_alpha_1 = 5213.25
+seasonal_naive_wmae = 4969.77
+improvement_vs_seasonal_naive_pct = -4.90%
+best_val_loss = 5230.72
+prediction_rows = 19500
+```
+
+მაგრამ blending-მა შეცვალა სურათი. საუკეთესო აღმოჩნდა `alpha = 0.50`:
+
+```text
+best_blend_alpha = 0.50
+best_blend_wmae = 4728.60
+best_blend_improvement_vs_seasonal_naive_pct = +4.85%
+best_blend_improvement_vs_full_residual_pct = +9.30%
+```
+
+alpha comparison:
+
+| alpha | WMAE | seasonal naive-სთან შედარება |
+|---:|---:|---:|
+| 0.50 | 4728.60 | +4.85% |
+| 0.25 | 4757.41 | +4.27% |
+| 0.75 | 4886.35 | +1.68% |
+| 0.00 | 4969.77 | reference |
+| 1.00 | 5213.25 | -4.90% |
+
+ეს მნიშვნელოვანი შედეგია: TFT-ის correction მთლიანად რომ გამოვიყენეთ, მოდელი seasonal naive-ზე უარესი იყო; მაგრამ correction-ის ნახევარი უკვე უკეთესი აღმოჩნდა. ანუ TFT useful signal-ს პოულობს, უბრალოდ raw output ზედმეტად ძლიერად ცვლის seasonal baseline-ს. v4-ში მოდელის “ჭკუა” გამოვიყენეთ უფრო ფრთხილად და პირველად TFT-მ top-500 validation-ზე seasonal naive-ს აჯობა.
+
 ## შედეგების მოკლე ცხრილი
 
 | Run | Subset | იდეა | WMAE | დასკვნა |
@@ -260,6 +322,7 @@ prediction_rows = 19500
 | v1 | top 500 | raw sales + external covariates | 6200.95 | external covariates დაეხმარა baseline-თან შედარებით |
 | v2 | top 500 | log target + external covariates | 6524.68 | worse than v1 |
 | v3 invalid | top 500 | residual, broken seasonal base | 53035.36 | invalid implementation |
-| v3 fixed | top 500 | residual + correct 52-week lookup | 5212.71 | best valid TFT so far, მაგრამ seasonal naive-ზე უარესი |
+| v3 fixed | top 500 | residual + correct 52-week lookup | 5212.71 | residual signal useful, მაგრამ full correction ზედმეტია |
+| v4 | top 500 | residual blending, alpha=0.50 | 4728.60 | best TFT so far და seasonal naive-ზე უკეთესი |
 
-ამ ეტაპზე საუკეთესო valid TFT არის v3 fixed. მთავარი გაკვეთილი ასეთია: TFT-სთვის full sales-ის სწავლა რთული აღმოჩნდა, log target-მა WMAE გააუარესა, ხოლო seasonal residual-მა მოდელი ბევრად დააახლოვა seasonal naive-სთან. საბოლოო პრობლემა დარჩა ის, რომ residual correction ჯერ კიდევ ზედმეტ შეცდომას ამატებს და reference baseline-ს `4.89%`-ით ჩამორჩება.
+ამ ეტაპზე საუკეთესო valid TFT არის v4. მთავარი გაკვეთილი ასეთია: TFT-სთვის full sales-ის სწავლა რთული აღმოჩნდა, log target-მა WMAE გააუარესა, seasonal residual-მა მოდელი seasonal naive-სთან დააახლოვა, ხოლო residual blending-მა correction-ის ძალა გააკონტროლა და WMAE `4728.60`-მდე ჩამოიყვანა.
