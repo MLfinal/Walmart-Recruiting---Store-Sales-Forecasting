@@ -630,7 +630,7 @@ Best trial: 46
 lightgbm-optuna-trial-46
 ```
 
-ეს შედეგი validation-ზე ძალიან ძლიერი ჩანდა, მაგრამ Kaggle-ზე იგივე feature engineering-მა დაახლოებით `4700` score მისცა. ამის მთავარი მიზეზი იყო ის, რომ validation-ზე `lag_1`, `lag_4`, `lag_13` და rolling feature-ები რეალურ validation `Weekly_Sales` მნიშვნელობებზე იყო აგებული. Kaggle test-ზე future `Weekly_Sales` არ გვაქვს, ამიტომ იგივე feature availability არ არსებობს.
+ეს შედეგი validation-ზე ძალიან ძლიერი ჩანდა, მაგრამ Kaggle-ზე იგივე feature engineering-მა დაახლოებით `6200` score მისცა. ამის მთავარი მიზეზი იყო ის, რომ validation-ზე `lag_1`, `lag_4`, `lag_13` და rolling feature-ები რეალურ validation `Weekly_Sales` მნიშვნელობებზე იყო აგებული. Kaggle test-ზე future `Weekly_Sales` არ გვაქვს, ამიტომ იგივე feature availability არ არსებობს.
 
 ამიტომ `1573.4988` აღარ უნდა ჩაითვალოს final reliable validation score-ად. ის დარჩა როგორც ძველი ექსპერიმენტის შედეგი და საჭიროა comparison-ისთვის.
 
@@ -683,7 +683,7 @@ Best trial-ის final training log:
 
 | ექსპერიმენტი | Validation WMAE | Kaggle score | შეფასება |
 | --- | ---: | ---: | --- |
-| ძველი lag/rolling FE | `1573.4988` | დაახლოებით `4700` | validation ძალიან optimistic იყო |
+| ძველი lag/rolling FE | `1573.4988` | დაახლოებით `6200` | validation ძალიან optimistic იყო |
 | ახალი safe `SalesLag52` FE | `1633.3693` | დაახლოებით `3600` | validation ოდნავ უარესია, მაგრამ Kaggle ბევრად უკეთესი გახდა |
 
 Validation-ზე ახალი feature engineering ოდნავ უარესია:
@@ -697,7 +697,7 @@ Validation-ზე ახალი feature engineering ოდნავ უარ�
 Kaggle-ზე კი ახალი feature engineering მნიშვნელოვნად უკეთესია:
 
 ```text
-4700 -> 3600
+6200 -> 3600
 ```
 
 ეს ნიშნავს, რომ ახალი validation/inference setup უფრო რეალისტურია. მოდელი ახლა ეყრდნობა ისეთ feature-ებს, რომლებიც test set-ზეც ხელმისაწვდომია:
@@ -732,3 +732,56 @@ Kaggle-ზე კი ახალი feature engineering მნიშვნე�
 2. `n_estimators = 100` fixed არის; საუკეთესო trial-ების curves ხშირად 100 iteration-მდე ჯერ კიდევ იკლებდა, ამიტომ `n_estimators`/early stopping tuning შეიძლება დაგვეხმაროს.
 3. Historical aggregates ჯერ კიდევ ძლიერ signal-ს იძლევა, ამიტომ final inference-ზე უნდა დავრწმუნდეთ, რომ registry pipeline მხოლოდ training history-ს იყენებს.
 4. Full-data retrain final submission-მდე ჯერ ცალკე უნდა გადაწყდეს, რადგან validation comparison-ისთვის time split აუცილებელია.
+
+## Kaggle submission ანალიზი
+
+LightGBM-ის საბოლოო Kaggle submission-ზე მივიღე:
+
+```text
+Kaggle score: 3600
+```
+
+ეს შედეგი ძველ LightGBM submission-ზე უკეთესია, მაგრამ XGBoost-ზე უარესია:
+
+```text
+ძველი LightGBM unsafe lag/rolling setup ≈ 6200
+ახალი LightGBM safe SalesLag52 setup ≈ 3600
+XGBoost ≈ 2806
+```
+
+ჩემი შეფასებით, LightGBM-ის მთავარი გაკვეთილი იყო validation leakage-ის კონტროლი. ძველი feature engineering validation-ზე ძალიან კარგად ჩანდა, მაგრამ Kaggle-ზე ცუდად გადავიდა, რადგან validation feature-ებში შედიოდა ისეთი lag/rolling ინფორმაცია, რომელიც test future-ში რეალურად არ გვექნება.
+
+ახალ setup-ში ეს პრობლემა შევამცირეთ:
+
+- ამოვიღეთ `lag_1`, `lag_4`, `lag_13`;
+- ამოვიღეთ rolling mean/std feature-ები;
+- დავტოვეთ მხოლოდ safe `SalesLag52`;
+- inference pipeline-ში `SalesLag52` stored observed history-დან იქმნება.
+
+ამის შემდეგ validation ოდნავ გაუარესდა:
+
+```text
+Old validation WMAE = 1573.4988
+New validation WMAE = 1633.3693
+```
+
+მაგრამ Kaggle მნიშვნელოვნად გაუმჯობესდა:
+
+```text
+Old Kaggle ≈ 6200
+New Kaggle ≈ 3600
+```
+
+ეს ჩემთვის კარგი ნიშანია: validation score ნაკლებად ლამაზია, მაგრამ უფრო honest გახდა. ანუ model ახლა იმ feature-ებს იყენებს, რომლებიც test set-ზეც რეალურად ხელმისაწვდომია.
+
+რატომ ვერ აჯობა XGBoost-ს:
+
+- XGBoost-ის raw-input pipeline თავიდანვე უფრო self-contained იყო.
+- XGBoost-ის feature engineering უფრო მკაცრად იყო მორგებული Kaggle inference-ზე.
+- LightGBM-ში feature selection-მა შეიძლება ზოგი feature ამოიღო, რომელიც test generalization-ზე სასარგებლო იქნებოდა.
+- LightGBM `n_estimators = 100` fixed იყო; რამდენიმე trial-ში validation curve 100 iteration-მდე კიდევ იკლებდა, ამიტომ training ბოლომდე optimal არ ჩანს.
+- LightGBM-ის validation score ჯერ კიდევ Kaggle-ზე ბევრად უკეთესია, რაც ნიშნავს, რომ validation-test mismatch ბოლომდე არ მოგვარებულა.
+
+საბოლოო დასკვნა:
+
+LightGBM ძალიან ძლიერი validation model იყო, მაგრამ Kaggle-ზე XGBoost უკეთესად generalized. ამ ეტაპზე LightGBM-ს final champion-ად არ ავირჩევდი, თუმცა safe `SalesLag52` ცვლილებამ აშკარად სწორი მიმართულებით წაიყვანა pipeline. შემდეგი ნაბიჯი იქნებოდა `n_estimators`/early stopping tuning და validation simulation-ის კიდევ უფრო დაახლოება Kaggle inference-სთან.
