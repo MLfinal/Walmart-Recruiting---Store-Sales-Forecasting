@@ -293,11 +293,13 @@ Tree model-ებისთვის `WeekOfYear` თვითონაც სა
 
 მნიშვნელოვანი შენიშვნა:
 
-ეს aggregate-ები უნდა დაითვალოს მხოლოდ training data-ზე. თუ validation target values მოხვდება aggregate-ში, მივიღებთ target leakage-ს.
+ეს aggregate-ები validation/test-ზე ითვლება მხოლოდ training data-ზე fit-ებული mapping-ებიდან. Training rows-ზე კი გამოიყენება expanding historical aggregate logic, რომ row-მ თავისივე `Weekly_Sales` მნიშვნელობა არ გამოიყენოს. ეს XGBoost notebook-ის time-safe aggregate იდეასთან არის დაახლოებული და target leakage-ის რისკს ამცირებს.
 
-## 7. LagRollingFeatureTransformer
+## 7. LagRollingFeatureTransformer ძველი ექსპერიმენტი
 
-ეს transformer ქმნის:
+პირველ LightGBM training ექსპერიმენტში აქტიურად გამოიყენებოდა lag/rolling feature engineering.
+
+ეს transformer ქმნიდა:
 
 - `lag_1`
 - `lag_4`
@@ -306,16 +308,48 @@ Tree model-ებისთვის `WeekOfYear` თვითონაც სა
 - rolling mean feature-ებს
 - rolling standard deviation feature-ებს
 
-რატომ დაემატა:
+რატომ დაემატა თავდაპირველად:
 
 - Weekly sales ძლიერად autocorrelated არის.
 - წინა კვირის, წინა თვის, წინა კვარტლის და წინა წლის იგივე კვირის sales ძლიერი predictor-ებია.
 - Rolling mean noisy weekly sales-ს ასწორებს.
 - Rolling standard deviation volatility-ს აღწერს.
 
-მნიშვნელოვანი რისკი:
+ამ ძველი feature set-ით საუკეთესო დალოგილი Optuna validation result იყო:
 
-Lag და rolling feature-ებმა შეიძლება leakage შექმნას, თუ validation rows წინა validation-period `Weekly_Sales` მნიშვნელობებს იყენებს. ეს validation score-ს გააუმჯობესებს, მაგრამ Kaggle test inference-ზე future `Weekly_Sales` უცნობია, ამიტომ ეს საკითხი საბოლოო submission-მდე ფრთხილად უნდა მოგვარდეს.
+```text
+Validation Weighted MAE: 1573.4988
+Validation MAE: 1543.4832
+Best trial: 46
+```
+
+მაგრამ ამ feature set-ს ჰქონდა მნიშვნელოვანი რისკი: validation dataframe-ში `Weekly_Sales` უკვე ცნობილი იყო, ამიტომ `lag_1`, `lag_4`, `lag_13` და rolling feature-ები validation-ზე ზედმეტად optimistic score-ს იძლეოდა. Kaggle test-ზე future `Weekly_Sales` უცნობია, ამიტომ იგივე feature-ები პირდაპირ ვერ შეიქმნება.
+
+ამის გამო Kaggle score ბევრად გაუარესდა, მიუხედავად იმისა, რომ validation WMAE ძალიან კარგი ჩანდა.
+
+## 8. Safe SalesLag52 feature მიმდინარე retrain-ისთვის
+
+ახალი LightGBM feature engineering გადაკეთდა XGBoost-ის მსგავსად და აქტიურ pipeline-ში დარჩა მხოლოდ უსაფრთხო yearly lag:
+
+- `SalesLag52`
+- `SalesLag52_available`
+
+`SalesLag52` ითვლება მხოლოდ observed history-დან:
+
+```python
+history_date = current_date - 52 weeks
+```
+
+ანუ validation/test row არ იყენებს თავისივე `Weekly_Sales` მნიშვნელობას და არ იყენებს future sales-ს. თუ 52 კვირით უკან შესაბამისი row არ არსებობს, feature ივსება training target median-ით, ხოლო `SalesLag52_available = 0` ინახავს ინფორმაციას, რომ რეალური lag ვერ მოიძებნა.
+
+რატომ არის ეს უფრო სწორი:
+
+- Kaggle inference-ზე იგივე logic მუშაობს, რაც validation-ზე.
+- model აღარ ეყრდნობა unknown future sales-ს.
+- validation score ნაკლებად optimistic უნდა იყოს.
+- Kaggle score უფრო ახლოს უნდა მივიდეს validation score-თან.
+
+ამ ცვლილების შემდეგ LightGBM ხელახლა უნდა გაიშვას. ძველი Optuna result (`1573.4988`) არ უნდა წაიშალოს, რადგან comparison-ისთვის საჭიროა, მაგრამ final model selection-ისთვის ის სანდო აღარ არის unsafe lag/rolling feature-ების გამო.
 
 ## Feature Engineering W&B Run
 
@@ -598,9 +632,14 @@ lightgbm-optuna-trial-46
 
 ## შენიშვნები და რისკები
 
-Notebook კარგია experiment tracking-ისთვის, მაგრამ ორი მნიშვნელოვანი რისკი ჯერ რჩება:
+ძველი LightGBM validation result ოპტიმისტური იყო, რადგან lag/rolling feature-ები validation `Weekly_Sales` ინფორმაციაზე იყო დამოკიდებული. ეს იყო მთავარი მიზეზი, რატომაც validation WMAE დაახლოებით `1600` იყო, ხოლო Kaggle score ბევრად უარესი გამოვიდა.
 
-1. Lag/rolling validation leakage შეიძლება არსებობდეს, რადგან validation rows შეიცავს რეალურ `Weekly_Sales` მნიშვნელობებს.
-2. საუკეთესო model ჯერ არ არის შენახული reusable pipeline-ად და არ არის დარეგისტრირებული inference-ისთვის.
+მიმდინარე ვერსიაში unsafe lag/rolling feature-ები ამოღებულია და დარჩა მხოლოდ safe `SalesLag52`, რომელიც observed history-დან ითვლება. ამის შემდეგ საჭიროა notebook-ის თავიდან გაშვება:
 
-Final Kaggle submission-მდე pipeline უნდა გახდეს raw test data-ზე უსაფრთხოდ გასაშვები, ხოლო საუკეთესო model უნდა შეინახოს artifact/model registry-ში.
+1. Feature engineering cell.
+2. Feature selection cell.
+3. Optuna training cell.
+4. Best model registration cell.
+5. `lightgbm_inference.ipynb`-ით ახალი submission-ის დაგენერირება.
+
+ახალი validation score სავარაუდოდ ძველ `1573.4988`-ზე უარესი იქნება, მაგრამ Kaggle score-ს უფრო რეალისტურად უნდა დაემთხვეს. ეს უკეთესი setup-ია final submission-ისთვის, რადგან validation და test inference ერთნაირ feature availability-ს იყენებს.
