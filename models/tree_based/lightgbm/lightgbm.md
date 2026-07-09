@@ -16,6 +16,78 @@ Notebook დაყოფილია რამდენიმე მთავა
 
 ეს სტრუქტურა ერგება პროექტის მოთხოვნას: preprocessing/feature engineering, feature selection და model training ცალ-ცალკე ეტაპებადაა გამოყოფილი და W&B-ში ცალკე run-ებად ილოგება.
 
+## Baseline LightGBM შედეგი
+
+Baseline notebook არის `baseline_lightgbm.ipynb`. მისი მიზანია გვქონდეს მარტივი საწყისი შედეგი, რომელსაც შევადარებთ feature engineering + feature selection + Optuna ექსპერიმენტს.
+
+Baseline-ში არ გამოიყენება advanced feature engineering:
+
+- არ არის calendar feature-ები;
+- არ არის holiday proximity feature-ები;
+- არ არის markdown interaction feature-ები;
+- არ არის lag/rolling feature-ები;
+- არ არის historical aggregate feature-ები;
+- არ არის feature selection;
+- არ არის Optuna tuning.
+
+მხოლოდ მინიმალური preprocessing გაკეთდა, რაც LightGBM-ს training-ისთვის სჭირდება:
+
+- `Date` სვეტის drop;
+- markdown missing value-ების `0`-ით შევსება;
+- numeric missing value-ების train median-ით შევსება;
+- `Type` categorical feature-ად გადაყვანა;
+- chronological last-32-weeks validation split.
+
+მოწოდებული baseline training log:
+
+```text
+[50]  train's l1: 5929.85  validation's l1: 5563.04
+[100] train's l1: 4701.74  validation's l1: 4349.25
+[150] train's l1: 4260.91  validation's l1: 4018.80
+[200] train's l1: 3950.84  validation's l1: 3759.19
+[250] train's l1: 3726.14  validation's l1: 3587.61
+[300] train's l1: 3552.86  validation's l1: 3461.04
+[350] train's l1: 3444.44  validation's l1: 3389.69
+[400] train's l1: 3358.04  validation's l1: 3330.70
+[450] train's l1: 3273.90  validation's l1: 3266.29
+[500] train's l1: 3178.69  validation's l1: 3188.88
+```
+
+Baseline-ის საუკეთესო დალოგილი validation L1 ამ run-ში არის:
+
+```text
+Validation L1: 3188.88
+Iteration: 500
+```
+
+ეს შედეგი აჩვენებს, რომ raw merged feature-ებით LightGBM სწავლობს general sales pattern-ებს, მაგრამ error ჯერ კიდევ მაღალია. Validation L1 თანმიმდევრულად იკლებს 50-დან 500 iteration-მდე, რაც ნიშნავს, რომ baseline model ბოლომდე არ არის saturated და მეტი tree ან უკეთესი feature-ები შეიძლება დაეხმაროს.
+
+მნიშვნელოვანია, რომ train L1 და validation L1 ძალიან ახლოს არის ბოლო iteration-ზე:
+
+```text
+train L1: 3178.69
+validation L1: 3188.88
+```
+
+ეს არ ჰგავს ძლიერ overfitting-ს. უფრო ჩანს, რომ baseline model under-featured არის: მას არ აქვს seasonality, holiday proximity, lag/rolling და historical aggregate signals, ამიტომ ვერ იჭერს Walmart sales-ის მთავარ structure-ს.
+
+შედარებისთვის, engineered LightGBM Optuna run-ის საუკეთესო შედეგი იყო:
+
+```text
+Validation Weighted MAE: 1573.4988
+Validation MAE: 1543.4832
+```
+
+პირდაპირი შედარებისას სიფრთხილეა საჭირო, რადგან baseline log-ში მოცემულია LightGBM-ის `validation_l1`, ხოლო final experiment-ის მთავარი metric არის weighted MAE. მაგრამ მაინც ჩანს ძლიერი improvement: engineered model-ის validation error დაახლოებით ორჯერ დაბალია baseline validation L1-ზე.
+
+დასკვნა:
+
+- baseline LightGBM კარგი საწყისი წერტილია;
+- baseline არ ჩანს overfitted;
+- მთავარი პრობლემა feature signal-ის ნაკლებობაა;
+- feature engineering-მა, feature selection-მა და Optuna tuning-მა მნიშვნელოვანი improvement მოიტანა;
+- საბოლოო model selection მაინც უნდა გაკეთდეს `Validation Weighted MAE`-ით, რადგან competition metric ეს არის.
+
 ## მონაცემების გაყოფა
 
 Notebook-ში გამოყენებულია chronological validation split და არა random split.
@@ -32,6 +104,72 @@ validation_dates = np.sort(df_train_merged["Date"].unique())[-VALIDATION_WEEKS:]
 - ამოცანა არის time-series forecasting.
 - random split აურევს წარსულსა და მომავალს.
 - time-based split უკეთ ასახავს რეალურ forecasting სიტუაციას: მოდელი სწავლობს წარსულზე და პროგნოზირებს მომავალს.
+
+## Metric Evaluation
+
+ამ ამოცანაში მთავარი შეფასების metric არის **Weighted Mean Absolute Error (WMAE)**, რადგან Walmart Kaggle competition სწორედ ამ metric-ით აფასებს submission-ს.
+
+გამოყენებული metric-ები:
+
+| Metric | სად გამოიყენება | რატომ |
+| --- | --- | --- |
+| `Weighted MAE` / `WMAE` | მთავარი validation score და Optuna objective | ემთხვევა competition metric-ს და holiday week-ებს უფრო დიდ წონას აძლევს |
+| `MAE` | დამატებითი validation diagnostic | აჩვენებს საშუალო absolute error-ს ყველა row-ზე თანაბარი წონით |
+| `train_l1` / `validation_l1` | LightGBM training curves/W&B charts | გვაჩვენებს, როგორ მცირდება L1 loss train და validation ეტაპებზე |
+| `RMSE` | ზოგადი diagnostic, საჭიროების შემთხვევაში | დიდ შეცდომებს უფრო მკაცრად სჯის, მაგრამ competition-ის მთავარი metric არ არის |
+
+### WMAE ფორმულა
+
+Competition metric ითვლება ასე:
+
+```python
+WMAE = sum(weights * abs(y_true - y_pred)) / sum(weights)
+```
+
+სადაც:
+
+```python
+weight = 5  # holiday week
+weight = 1  # non-holiday week
+```
+
+ანუ holiday rows ხუთჯერ უფრო მნიშვნელოვანია, ვიდრე ჩვეულებრივი კვირები.
+
+### რატომ არის WMAE საუკეთესო metric ამ task-ისთვის
+
+Walmart sales forecasting-ში ყველა კვირა ერთნაირად მნიშვნელოვანი არ არის. Holiday კვირებში, მაგალითად Thanksgiving, Christmas, Labor Day და Super Bowl period-ში, გაყიდვები მკვეთრად იცვლება და ბიზნესისთვის პროგნოზის შეცდომა უფრო ძვირია.
+
+ამიტომ `MAE` მარტო საკმარისი არ არის: ის holiday და non-holiday rows-ს ერთნაირად აფასებს. მაგალითად, თუ model holiday week-ზე ძალიან ცუდად ცდება, მაგრამ ordinary week-ებზე კარგად მუშაობს, ჩვეულებრივი MAE ამას სრულად ვერ ასახავს. WMAE კი holiday შეცდომას უფრო დიდ მნიშვნელობას ანიჭებს და ზუსტად competition-ის business logic-ს მიჰყვება.
+
+ამის გამო Optuna optimization-ის დროს საუკეთესო model შეირჩა არა უბრალო MAE-ით, არამედ validation WMAE-ით:
+
+```python
+weighted_mae = np.sum(np.abs(y_val - y_pred_val) * sample_weights_val) / np.sum(sample_weights_val)
+```
+
+### რატომ მაინც ვლოგავთ MAE-საც
+
+MAE მაინც სასარგებლოა, რადგან გვაჩვენებს model-ის საშუალო შეცდომას ყველა row-ზე თანაბრად. თუ WMAE და MAE ძალიან განსხვავდება, ეს ნიშნავს, რომ model holiday rows-ზე სხვანაირად იქცევა, ვიდრე ordinary rows-ზე.
+
+ამ notebook-ში საუკეთესო trial-ისთვის დალოგილი იყო:
+
+```text
+Validation Weighted MAE: 1573.4988
+Validation MAE: 1543.4832
+```
+
+WMAE ოდნავ მაღალია MAE-ზე, რაც ბუნებრივია, რადგან holiday rows უფრო მძიმე წონით ითვლება და ისინი პროგნოზირებისთვის უფრო რთულია.
+
+### რატომ არ ავირჩიეთ RMSE მთავარ metric-ად
+
+RMSE დიდ შეცდომებს უფრო მკაცრად სჯის, რადგან error-ს კვადრატში იღებს. ეს diagnostic-ად შეიძლება სასარგებლო იყოს, მაგრამ ამ competition-ში leaderboard WMAE-ით ითვლება. ამიტომ თუ model-ს RMSE უკეთესი აქვს, მაგრამ WMAE უარესი, ასეთი model ამ კონკრეტული დავალებისთვის არ არის საუკეთესო.
+
+დასკვნა:
+
+- მთავარი model selection metric არის `Validation Weighted MAE`.
+- `MAE` გამოიყენება როგორც დამატებითი sanity check.
+- `train_l1` და `validation_l1` გამოიყენება learning curve-ების შესაფასებლად.
+- `RMSE` შეიძლება დაგვეხმაროს დიდი შეცდომების აღმოჩენაში, მაგრამ არ არის მთავარი optimization target.
 
 ## Feature Engineering
 
@@ -466,4 +604,3 @@ Notebook კარგია experiment tracking-ისთვის, მაგრ
 2. საუკეთესო model ჯერ არ არის შენახული reusable pipeline-ად და არ არის დარეგისტრირებული inference-ისთვის.
 
 Final Kaggle submission-მდე pipeline უნდა გახდეს raw test data-ზე უსაფრთხოდ გასაშვები, ხოლო საუკეთესო model უნდა შეინახოს artifact/model registry-ში.
-
