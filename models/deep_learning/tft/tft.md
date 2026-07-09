@@ -615,3 +615,91 @@ W&B inference run ინახავს:
 - model artifact lineage-ს v7 checkpoint-ზე.
 
 ამით TFT-ის final artifact story სრულდება: training run ინახავს checkpoint-ს, inference run იყენებს ამ checkpoint-ს და W&B-ში აბრუნებს submission-სა და ყველა საჭირო diagnostic ფაილს.
+
+### inference run result
+
+Inference notebook წარმატებით გაეშვა და W&B-ზე დალოგდა:
+
+```text
+https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/rr6jcmci
+```
+
+გამოყენებული configuration:
+
+```text
+model_artifact_uri = kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/tft-v7-stable-serious-residual-blending:experiment-v7
+checkpoint = /content/artifacts/tft_v7_model/tft_v7_best.ckpt
+top_n_series = 2000
+encoder_weeks = 52
+blend_alpha = 0.35
+```
+
+data coverage:
+
+```text
+train_rows_before = 421570
+train_rows_after_top_filter = 285226
+test_rows_total = 115064
+test_rows_tft_covered_before_dataset_index = 77844
+test_series_total = 3169
+test_series_tft_covered = 2000
+test_series_fallback_only = 1169
+```
+
+`TimeSeriesDataSet`-მა 18 group prediction index-იდან ამოაგდო, რადგან მათთვის encoder/prediction window საკმარისად არ შედგა:
+
+```text
+prediction_samples = 1982
+prediction_batches = 4
+```
+
+ეს არ არის failure. ეს ნიშნავს, რომ top-2000-ში მყოფი 18 Store-Dept pair მაინც ვერ გამოიყენა TFT-მა inference window-ისთვის. ასეთ rows-ზე notebook ავტომატურად seasonal fallback-ზე გადავიდა.
+
+prediction diagnostics:
+
+```text
+raw_prediction_nan_count = 0
+raw_prediction_posinf_count = 0
+raw_prediction_neginf_count = 0
+raw_prediction_finite_count = 77298
+raw_prediction_total_count = 77298
+raw_prediction_min_finite = -21457.74
+raw_prediction_mean_finite = -61.26
+raw_prediction_max_finite = 23676.27
+```
+
+ეს არის მთავარი ხარისხის check: v6-ისგან განსხვავებით, inference-ში `NaN` ან `Inf` prediction არ გაჩნდა.
+
+final submission summary:
+
+```text
+submission_rows = 115064
+tft_rows = 77248
+fallback_rows = 37816
+tft_row_coverage = 67.13%
+prediction_min = 0.0
+prediction_mean = 16458.39
+prediction_max = 300000.0
+registry_status = linked
+```
+
+output files:
+
+```text
+/content/drive/MyDrive/walmart_competition_inference/tft/tft_v7_submission.csv
+/content/drive/MyDrive/walmart_competition_inference/tft/tft_v7_detailed_predictions.csv
+/content/drive/MyDrive/walmart_competition_inference/tft/tft_v7_inference_manifest.json
+```
+
+Kaggle-ზე ამ submission-ის ატვირთვის შემდეგ მივიღეთ:
+
+```text
+file = tft_v7_submission.csv
+status = Complete after deadline
+public_score = 2979.86060
+private_score = 3058.98280
+```
+
+ეს score validation WMAE-სგან განსხვავებულია, რადგან Kaggle test period უკვე სხვა დროის მონაკვეთია და იქ submission-ის დაახლოებით `32.87%` seasonal fallback-ით არის შევსებული. მიუხედავად ამისა, შედეგი usable final TFT submission-ად ჩაითვალა: notebook-მა სრულად შექმნა Kaggle-format ფაილი, W&B-ზე დალოგა inference lineage და Kaggle-მაც ფაილი წარმატებით მიიღო.
+
+inference-ის საბოლოო ლოგიკა ასეთია: სადაც v7 TFT-ს სანდოდ შეუძლია პროგნოზი, ვიყენებთ blended residual correction-ს; სადაც TFT coverage არ გვაქვს, ვიყენებთ 52-week seasonal naive-ს. ამიტომ submission ყოველთვის სრულად ივსება, ხოლო W&B-ში ცალკე ჩანს, prediction-ის რა ნაწილი მოდის TFT-დან და რა ნაწილი fallback-იდან.
