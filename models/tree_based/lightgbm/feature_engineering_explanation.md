@@ -18,6 +18,20 @@ valid_transformed = transformer.transform(valid_data)
 
 ეს მნიშვნელოვანია, რადგან ზოგი feature მხოლოდ train მონაცემებიდან უნდა ვისწავლოთ. თუ validation ან test row-ების target ინფორმაციას გამოვიყენებთ, მივიღებთ target leakage-ს და validation score ხელოვნურად კარგი გამოვა.
 
+## Kaggle შედეგის მოკლე ანალიზი
+
+LightGBM-ის ძველმა lag/rolling feature engineering-მა validation-ზე ძალიან ძლიერი შედეგი აჩვენა, მაგრამ Kaggle-ზე ცუდად generalized:
+
+```text
+ძველი unsafe LightGBM setup ≈ 6200 Kaggle score
+ახალი safe SalesLag52 LightGBM setup ≈ 3600 Kaggle score
+XGBoost final pipeline ≈ 2806 Kaggle score
+```
+
+ჩემი აზრით, მთავარი მიზეზი feature availability იყო. `lag_1`, `lag_4`, `lag_13` და rolling feature-ები validation-ზე რეალურ `Weekly_Sales` მნიშვნელობებზე იყო აგებული, მაგრამ Kaggle test future-ში ეს ინფორმაცია არ არსებობს. ამიტომ validation score ზედმეტად კარგი გამოდიოდა, submission-ზე კი model იშლებოდა.
+
+Safe ვერსიაში დავტოვეთ `SalesLag52`, რადგან ერთი წლის წინანდელი sales history inference დროსაც ხელმისაწვდომია. ამის შემდეგ validation WMAE ოდნავ გაუარესდა, მაგრამ Kaggle score მნიშვნელოვნად გაუმჯობესდა. საბოლოოდ XGBoost მაინც უკეთესი დარჩა, რადგან მისი raw-input pipeline და feature engineering უფრო სტაბილურად დაემთხვა Kaggle test setup-ს.
+
 ## 1. Feature Cleaning
 
 კლასი:
