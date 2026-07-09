@@ -346,7 +346,7 @@ status = Complete after deadline
 | inference ფორმა | checkpoint artifact | raw-input pipeline | checkpoint + fallback |
 | Kaggle quality | საშუალო | სუსტი | საუკეთესო DL |
 
-## რატომ DLinear validation-ზე უკეთესი ჩანს, მაგრამ Kaggle-ზე TFT ჯობნის
+## რატომ ჩანს DLinear validation-ზე უკეთესი, მაგრამ Kaggle-ზე TFT ზე უარესი? 
 
 DLinear validation WMAE `1506.28` ძალიან ძლიერია, მაგრამ ეს იყო last-39-week validation on train data, სადაც yearly/series pattern კარგად მუშაობდა. Kaggle test horizon სხვა future period-ია და იქ uncertainty იზრდება.
 
@@ -364,7 +364,7 @@ DLinear ≈ 3500
 - TFT fallback იცავს ისეთ rows-ზე, სადაც model coverage არ არის;
 - Kaggle test-ზე hybrid seasonal baseline + controlled neural correction უფრო robust აღმოჩნდა.
 
-## რატომ N-BEATS ჩამორჩა
+## რატომ ჩამორჩა N-BEATS
 
 N-BEATS-ში რამდენიმე რამ არ მუშაობდა:
 
