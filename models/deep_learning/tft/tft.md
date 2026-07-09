@@ -449,7 +449,105 @@ v6-მა მაინც მნიშვნელოვანი ინფო�
 - larger model (`41K` → `82K` parameter) და full panel საკმარისი არ იყო stable residual prediction-ისთვის;
 - best validation checkpoint epoch `0`-ზე დარჩა, ხოლო შემდეგი validation loss-ები გაუარესდა;
 - full-data validation-ზე seasonal naive ბევრად ძლიერი reference გამოვიდა (`1604.27`), ამიტომ top-500 შედეგებთან პირდაპირი შედარება არ შეიძლება;
-- v5 რჩება საუკეთესო valid TFT run-ად, რადგან იქ WMAE finite და უკეთესი იყო seasonal naive-ზე.
+- v6-ის მთავარი ტექნიკური პრობლემა იყო guard-ების არქონა: თუ prediction-ში ერთი `NaN` მაინც გაჩნდება, WMAE მთლიანად `NaN` ხდება.
+
+## v7 — stable serious residual blending
+
+v6-ის შემდეგ არ იყო სწორი უბრალოდ იგივე full-data train-ის გამეორება. ამიტომ v7-ში მიზანი იყო არა მაქსიმალურად დიდი run, არამედ ისეთი serious run, რომელიც არ დაიშლება და მოგვცემს სანდო WMAE-ს. იდეა იგივე დარჩა: TFT არ პროგნოზირებს პირდაპირ sales-ს, ის პროგნოზირებს 52-week seasonal baseline-ის correction-ს.
+
+v7-ში შევცვალეთ:
+
+```text
+top_n_series = 2000
+train_rows_before = 421570
+train_rows_after = 285226
+encoder_weeks = 52
+validation_weeks = 39
+batch_size = 512
+max_epochs = 45
+patience = 7
+max_time_minutes = 240
+learning_rate = 5e-5
+hidden_size = 24
+hidden_continuous_size = 12
+attention_head_size = 2
+dropout = 0.15
+gradient_clip_val = 0.05
+residual_clip = 100000
+prediction_clip_max = 300000
+blend_alphas = [0.25, 0.30, 0.35, 0.40, 0.45, 0.50]
+```
+
+`top_n_series = 2000` compromise იყო: v5-ის top-500-ზე ბევრად დიდი data მივეცით, მაგრამ v6-ის full `3331` series აღარ ავიღეთ, რადგან იქ noisy/sparse series-ებმა და non-finite prediction-ებმა run გააფუჭა. ასევე დავამატეთ stability checks:
+
+```text
+raw_prediction_nan_count
+raw_prediction_posinf_count
+raw_prediction_neginf_count
+raw_prediction_finite_count
+postprocessed_prediction_min / mean / max
+```
+
+ამით უკვე ზუსტად ვხედავთ, prediction valid არის თუ არა. v7-ში prediction აღარ გაფუჭდა:
+
+```text
+raw_prediction_nan_count = 0
+raw_prediction_posinf_count = 0
+raw_prediction_neginf_count = 0
+raw_prediction_finite_count = 78000
+raw_prediction_total_count = 78000
+raw_prediction_min_finite = -20219.15
+raw_prediction_mean_finite = 250.06
+raw_prediction_max_finite = 25161.58
+```
+
+W&B run:
+
+```text
+https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/iz6z9sd1
+```
+
+Training early stopped / finished around epoch `8`. საუკეთესო checkpoint იყო:
+
+```text
+best_checkpoint = tft-v7-epoch=01-val_loss=2830.1372.ckpt
+best_val_loss = 2830.1372
+model_parameters = 81.6K
+training_samples = 79679
+validation_samples = 2000
+train_batches_total = 155
+validation_batches_total = 4
+```
+
+ეს ნიშნავს, რომ მოდელმა საუკეთესო validation loss ძალიან ადრე მიიღო. ამიტომ გრძელი `max_epochs = 45` პრაქტიკულად ბოლომდე არ დასჭირდა; early stopping-მა ცუდი epoch-ების გაგრძელება შეწყვიტა. ეს crash არ არის — ეს ნორმალური training control-ია. მაგრამ ისიც გვაჩვენებს, რომ მოცემული architecture/data setup სწრაფად აღწევს თავის ლიმიტს.
+
+v7-ის validation შედეგები:
+
+```text
+seasonal_naive_wmae = 2488.03
+validation_wmae_full_residual_alpha_1 = 2736.14
+full_residual_improvement_vs_seasonal_naive_pct = -9.97%
+best_blend_alpha = 0.35
+best_blend_wmae = 2379.50
+best_blend_improvement_vs_seasonal_naive_pct = +4.36%
+best_blend_improvement_vs_full_residual_pct = +13.03%
+prediction_rows = 78000
+```
+
+full residual ისევ ცუდია, რადგან TFT correction-ს ზედმეტად აძლიერებს. მაგრამ blending-მა ეს გააკონტროლა: alpha `0.35` საუკეთესო აღმოჩნდა და seasonal naive-ზე `4.36%` improvement მოიტანა.
+
+alpha comparison:
+
+| alpha | WMAE | seasonal naive-სთან შედარება |
+|---:|---:|---:|
+| 0.35 | 2379.50 | +4.36% |
+| 0.30 | 2381.50 | +4.28% |
+| 0.40 | 2381.96 | +4.26% |
+| 0.25 | 2388.23 | +4.01% |
+| 0.45 | 2388.87 | +3.99% |
+| 0.50 | 2400.04 | +3.54% |
+
+v7-ის ყველაზე მნიშვნელოვანი დასკვნა არის ის, რომ TFT-ს შეუძლია ბევრად უკეთესი absolute WMAE აჩვენოს, როცა subset უფრო ძლიერი/მაღალ volume series-ებზეა აგებული. მაგრამ ეს რიცხვი პირდაპირ v5-ს არ უნდა შევადაროთ, რადგან validation population შეიცვალა: v5 იყო top-500, v7 არის top-2000. ამიტომ `4717.71 → 2379.50` არ ნიშნავს უბრალოდ ორჯერ უკეთეს მოდელს; ეს ნიშნავს, რომ top-2000 validation set-ზე seasonal baseline უკვე `2488.03` იყო და TFT-blending-მა მასზე დამატებით მცირე improvement გააკეთა.
 
 ## შედეგების მოკლე ცხრილი
 
@@ -465,5 +563,55 @@ v6-მა მაინც მნიშვნელოვანი ინფო�
 | v4 | top 500 | residual blending, alpha=0.50 | 4728.60 | best TFT so far და seasonal naive-ზე უკეთესი |
 | v5 | top 500 | fine residual blending, alpha=0.40 | 4717.71 | best TFT so far |
 | v6 | full 3331 series | serious full-data train | NaN | invalid evaluation / non-finite predictions |
+| v7 | top 2000 | stable serious residual blending, alpha=0.35 | 2379.50 | valid, no NaN, seasonal naive-ზე უკეთესი |
 
-ამ ეტაპზე საუკეთესო valid TFT არის v5. მთავარი გაკვეთილი ასეთია: TFT-სთვის full sales-ის სწავლა რთული აღმოჩნდა, log target-მა WMAE გააუარესა, seasonal residual-მა მოდელი seasonal naive-სთან დააახლოვა, ხოლო residual blending-მა correction-ის ძალა გააკონტროლა. v4-ში WMAE `4728.60` იყო, v5-ში კი fine alpha search-მა `4717.71`-მდე ჩამოიყვანა. v6-მა გვაჩვენა, რომ უბრალოდ data/model/training budget-ის გაზრდა საკმარისი არ არის; full-data TFT-ს stability guard სჭირდება, რადგან non-finite prediction-ებმა validation metric გააფუჭა.
+ამ ეტაპზე საუკეთესო valid TFT run არის v7, მაგრამ შედარებისას context აუცილებელია: top-500 და top-2000 validation population ერთი და იგივე difficulty არ არის. მთავარი გაკვეთილი ასეთია: TFT-სთვის პირდაპირ full sales-ის სწავლა სუსტი აღმოჩნდა, log target-მა WMAE გააუარესა, seasonal residual-მა მოდელი seasonal naive-სთან დააახლოვა, ხოლო residual blending-მა correction-ის ძალა გააკონტროლა. v6-მა გვაჩვენა, რომ full-data serious train stability guard-ის გარეშე სანდო არ არის. v7-ში guard-ები დაემატა, prediction finite დარჩა და top-2000 subset-ზე საუკეთესო blending WMAE `2379.50` მივიღეთ.
+
+## inference — v7 checkpoint + seasonal fallback
+
+TFT-ზე training phase აქ დავასრულეთ და inference notebook ცალკე ფაილად დაიწერა:
+
+```text
+models/deep_learning/tft/tft_inference.ipynb
+```
+
+Inference არ წვრთნის მოდელს. flow ასეთია:
+
+1. Colab-ზე იტვირთება raw `train.csv`, `test.csv`, `features.csv`, `stores.csv`;
+2. თავიდან ითვლება იგივე deterministic top-2000 Store-Dept selection, რაც v7-ში გვქონდა;
+3. `train.csv`-დან კეთდება 52-week seasonal baseline test horizon-ისთვის;
+4. W&B-დან ჩამოდის v7 model artifact:
+
+```text
+kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/tft-v7-stable-serious-residual-blending:experiment-v7
+```
+
+5. checkpoint-იდან იტვირთება `tft_v7_best.ckpt`;
+6. TFT პროგნოზირებს მხოლოდ იმ Store-Dept series-ებს, რომლებიც top-2000-ში მოხვდა;
+7. პროგნოზი reconstruct ხდება ასე:
+
+```text
+Weekly_Sales = SeasonalNaive52 + 0.35 * PredictedResidual
+```
+
+8. Store-Dept pair-ები, რომლებიც top-2000-ში არ არის, არ გადის TFT-ში და იღებს fallback-ს:
+
+```text
+Weekly_Sales = SeasonalNaive52
+```
+
+ეს მნიშვნელოვანია, რადგან TFT categorical encoder-ს unseen Store-Dept category-ების უსაფრთხოდ მიღება არ შეუძლია. ამიტომ inference-ში model coverage და fallback coverage ცალკე ლოგდება.
+
+W&B inference run ინახავს:
+
+- Kaggle submission csv-ს;
+- detailed prediction csv-ს;
+- TFT-covered prediction csv-ს;
+- inference manifest-ს;
+- prediction histogram-ს;
+- TFT vs fallback coverage plot-ს;
+- prediction NaN/Inf diagnostics-ს;
+- row coverage summary-ს;
+- model artifact lineage-ს v7 checkpoint-ზე.
+
+ამით TFT-ის final artifact story სრულდება: training run ინახავს checkpoint-ს, inference run იყენებს ამ checkpoint-ს და W&B-ში აბრუნებს submission-სა და ყველა საჭირო diagnostic ფაილს.
