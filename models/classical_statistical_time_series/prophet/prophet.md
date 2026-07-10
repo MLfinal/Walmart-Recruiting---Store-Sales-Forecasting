@@ -395,6 +395,62 @@ validation WMAE = 1367.4470
 
 v6 არ არის წარუმატებელი run. მან დაადასტურა, რომ blend-ის სასარგებლო weight დაახლოებით `0.45–0.50` რეგიონშია და რომ v4-ის შედეგი შემთხვევითი ან აშკარად overfit weight არ იყო. მაგრამ final model selection-ში lowest untouched validation WMAE პრიორიტეტია, ამიტომ v4 რჩება საუკეთესო არჩევანად.
 
+## Final v4 pipeline, artifact და Model Registry
+
+v4 champion-ის არჩევის შემდეგ `model_experiment_prophet.ipynb`-ის ბოლოს შესრულდა final full-history refit და pipeline packaging. ეს უკვე validation experiment არ არის: მიზანია Kaggle inference-ისთვის self-contained artifact-ის შექმნა.
+
+```text
+v4 event-aware Prophet configuration
++ full train history
++ fitted Prophet models per valid Store-Dept series
++ 52-week seasonal-naive fallback
++ blend alpha = 0.50
+→ ProphetRawPipeline
+```
+
+Final refit ყველა `3331` series-ზე შესრულდა. სრული ისტორიის გამოყენების შემდეგ უფრო მეტ series-ს ჰქონდა საკმარისი non-zero history, ვიდრე validation fit-ში:
+
+```text
+fitted Prophet models = 3283
+fallback series        = 48
+stored history rows    = 421570
+blend alpha            = 0.50
+```
+
+Pipeline-ში მხოლოდ checkpoint/config არ ინახება. `model_to_json()`-ით ინახება უკვე full-history-ზე fit-ებული Prophet model თითო valid series-ზე. ამიტომ inference დროს Prophet models ხელახლა არ train-დება. Pipeline იღებს raw `test.csv`-ს, Prophet forecast-ს აკეთებს მხოლოდ fit-ებული series-ებისთვის და sparse/cold-start cases-ში stored history-დან 52-week seasonal-naive fallback-ს იყენებს.
+
+Contract test შესრულდა packaging-ის დროს:
+
+```text
+pipeline.predict(raw_test)
+→ save pipeline
+→ reload pipeline
+→ reloaded_pipeline.predict(raw_test)
+→ identical, finite, non-negative predictions
+```
+
+W&B pipeline registration run:
+
+```text
+run = prophet_v4_raw_pipeline_registration
+run id = rlm39vch
+```
+
+Registry target:
+
+```text
+wandb-registry-model/Walmart_Prophet_Raw_Pipeline:champion
+```
+
+ახლა Prophet inference-ის სწორ flow-ს აქვს მხოლოდ ერთი პასუხისმგებლობა:
+
+```python
+pipeline = download_from_registry(...)
+predictions = pipeline.predict(raw_test)
+```
+
+ის აღარ კითხულობს `train.csv`, აღარ refit-ავს Prophet-ს და აღარ იმეორებს event/fallback preprocessing-ს notebook-ში. Submission, manifest, prediction histogram და submission artifact უკვე inference run-ზე ლოგდება.
+
 ## W&B-ზე შენახული ინფორმაცია
 
 ყოველი run W&B-ზე ინახავს:
