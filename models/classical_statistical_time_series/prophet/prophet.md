@@ -271,6 +271,74 @@ v3-ში blend-ის სიძლიერე იყო yearly lookup და s
 
 ამ ეტაპზე v4 არის Prophet family-ის მიმდინარე საუკეთესო valid model. W&B-ში ინახება event calendar table, event-window configuration, raw Prophet/seasonal-naive/blend metrics, validation predictions, status table, plot და validation artifact.
 
+## Experiment v5 — clean promotion/context covariates + stronger regularization
+
+v5-ში v4-ის ორი ძლიერი ნაწილი უცვლელი დავტოვეთ:
+
+```text
+event-aware holiday windows
+0.50 × seasonal naive + 0.50 × direct Prophet blend
+```
+
+შემდეგ ერთად დავამატეთ `features.csv`-იდან ხუთი forecast-time-ზე ცნობილი feature და გავამკაცრეთ Prophet-ის regularization:
+
+```text
+MarkdownLogTotal       = log1p(MarkDown1 + ... + MarkDown5)
+HasMarkdown            = markdown availability indicator
+TemperatureDeviation13 = temperature - trailing 13-week Store mean
+FuelPriceChange4       = 4-week fuel-price change
+UnemploymentChange4    = 4-week unemployment change
+```
+
+Markdown columns-ში v1-ის შეცდომა არ განმეორებულა. ადრეული missing Markdown პირდაპირ `0`/no-promotion მდგომარეობად ჩაითვალა; `bfill()` საერთოდ არ გამოყენებულა. Temperature/Fuel/Unemployment features Store-ის შიგნით მხოლოდ მიმდინარე ან წინა feature dates-იდან შეიქმნა. ამიტომ v5 temporal leakage-ის გარეშე შესრულებული valid experiment-ია.
+
+Model settings-იც შეიცვალა:
+
+```text
+yearly Fourier order       = 8
+changepoint_prior_scale    = 0.03
+seasonality_prior_scale    = 5.0
+holidays_prior_scale       = 15.0
+regressor_prior_scale      = 0.15
+```
+
+იდეა იყო, რომ limited per-series history-ზე regressors მხოლოდ სუსტი correction ყოფილიყო და Prophet-ს ზედმეტი თავისუფლება არ ჰქონოდა.
+
+v5 full all-series result:
+
+```text
+v5 blend WMAE                = 1415.5392
+v5 blend MAE                 = 1389.4946
+v5 raw Prophet WMAE          = 1654.6635
+seasonal naive WMAE          = 1604.2697
+v4 blend WMAE                = 1367.4470
+difference vs v4             = +48.0922 WMAE  (3.52% worse)
+improvement vs seasonal naive= 11.7643%
+improvement vs raw Prophet   = 14.4515%
+fit_ok / fallback            = 3259 / 72
+fit error                    = 0
+elapsed time                 = 10.0468 minutes
+```
+
+v5 ჯერ კიდევ seasonal naive-ზე უკეთესია, მაგრამ v4-ზე უარესია:
+
+```text
+v4 event-aware blend      = 1367.45   ← current Prophet champion
+v5 covariate blend        = 1415.54
+seasonal naive            = 1604.27
+```
+
+მთავარი დიაგნოზი არის raw Prophet component-ის გაუარესება:
+
+```text
+v4 raw Prophet = 1534.86
+v5 raw Prophet = 1654.66
+```
+
+ეს ნიშნავს, რომ ამ მოკლე, ინდივიდუალური Store-Dept series-ებისთვის Markdown/context regressors და ახალი regularization ერთად საკმარისად სტაბილური დამატებითი signal არ აღმოჩნდა. Markdown/promotion ეფექტი სავარაუდოდ department-specific და არაწრფივია; ერთი მცირე Prophet regression თითო series-ზე მას საიმედოდ ვერ სწავლობს. Seasonal-naive blend-მა ზიანი შეამცირა, მაგრამ v4-ის უკეთესი calendar-only component ვერ შეინარჩუნა.
+
+v5-ის დასკვნა არ არის, რომ `features.csv` უსარგებლოა საერთოდ. ის tree-based/TFT global model-ებში შეიძლება უკეთ გამოიყენებოდეს. დასკვნა კონკრეტულად Prophet-ზეა: per-series Prophet-ისთვის v4-ის event calendar უფრო ძლიერი და სტაბილური feature engineering აღმოჩნდა, ვიდრე ამ ხუთი external regressor-ის ერთდროული დამატება.
+
 ## W&B-ზე შენახული ინფორმაცია
 
 ყოველი run W&B-ზე ინახავს:
@@ -297,6 +365,6 @@ Prophet baseline დასრულებულია როგორც სრ�
 status = working, reproducible baseline; not stronger than seasonal naive
 ```
 
-მან დაადასტურა, რომ per-series classical forecasting და W&B logging სწორად მუშაობს. Direct baseline Prophet-ის `1625.48` WMAE-მ აჩვენა, რომ trend/yearly seasonality/holiday component მარტო ვერ ჯობდა Walmart-ის ძლიერი კონკრეტული-კვირა-წინა-წლის signal-ს. v3 blend-მა ეს `1402.26`-მდე ჩამოიყვანა, ხოლო v4 event-aware holiday engineering-მა მიმდინარე საუკეთესო valid Prophet result — `1367.45` WMAE — მოგვცა.
+მან დაადასტურა, რომ per-series classical forecasting და W&B logging სწორად მუშაობს. Direct baseline Prophet-ის `1625.48` WMAE-მ აჩვენა, რომ trend/yearly seasonality/holiday component მარტო ვერ ჯობდა Walmart-ის ძლიერი კონკრეტული-კვირა-წინა-წლის signal-ს. v3 blend-მა ეს `1402.26`-მდე ჩამოიყვანა, v4 event-aware holiday engineering-მა `1367.45`-მდე გააუმჯობესა, ხოლო v5-მა გვაჩვენა, რომ external covariate expansion ამ architecture-ში ამ ეტაპზე აღარ ეხმარება. Prophet family-ის champion რჩება v4.
 
 External-covariate v1-მა კი დაადასტურა, რომ feature imputation დროით უნდა შემოწმდეს: მომავალიდან backward fill არ შეიძლება. ამიტომ v1-ის მაღალი WMAE model-performance conclusion არ არის; ის არის მონაცემის მომზადების შეცდომის დაფიქსირებული შედეგი.
