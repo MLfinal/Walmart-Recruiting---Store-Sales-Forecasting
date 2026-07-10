@@ -134,6 +134,42 @@ elapsed time                = 9.5987 minutes
 
 ამ run-მა ასევე აჩვენა, რომ all-series external-regressor loop ტექნიკურად მუშაობდა: fit error არ ყოფილა, 72 fallback ისევ მხოლოდ sparse-history series-ებზე მოვიდა, ხოლო runtime დაახლოებით 9.6 წუთი იყო.
 
+## Experiment v2 — seasonal-residual Prophet
+
+v1-ის შემდეგ external covariates სრულად ამოვიღეთ. v2-ის მიზანი იყო ძლიერი 52-week seasonal-naive პროგნოზის შეცვლა კი არა, მხოლოდ მისი კორექცია. თითო series-ისთვის notebook ასე მუშაობდა:
+
+```text
+residual(t)   = sales(t) - sales(t - 52)
+final_pred(t) = sales(t - 52) + Prophet(residual(t))
+```
+
+კოდში `fit_predict_prophet_for_series()` ჯერ fit პერიოდის პირველ 52 კვირას lag-ის შესაქმნელად ტოვებს. დარჩენილი კვირებიდან ქმნის residual target-ს და Prophet-ს ამ target-ზე fit-ავს. Validation-ზე base ნაწილი ისევ რეალური, 52 კვირით ადრე არსებული გაყიდვაა; Prophet-ს მხოლოდ residual correction ემატება. ამიტომ v2-ში არც external feature და არც backfill არ გამოყენებულა — ეს temporal-ად სუფთა experiment იყო.
+
+ყველა 3,331 series, იგივე ბოლო 39 კვირა და იგივე WMAE გამოვიყენეთ:
+
+```text
+Prophet v2 residual WMAE       = 3808.4181
+Prophet v2 residual MAE        = 3855.4009
+baseline Prophet WMAE          = 1625.4781
+seasonal naive WMAE            = 1604.2697
+vs baseline                    = +2182.9400 WMAE  (+134.30%)
+vs seasonal naive              = -137.3926%
+fit_ok / sparse fallback       = 3259 / 72
+fit error                      = 0
+elapsed time                   = 17.3492 minutes
+```
+
+ანუ v2 v1-ზე ოდნავ ნაკლებად ცუდი იყო, მაგრამ baseline Prophet-სა და seasonal naive-სთან შედარებით ძალიან ცუდი შედეგი მიიღო. მიზეზი თვითონ residual-ის მასშტაბია. თითო series-ზე fit პერიოდში მხოლოდ დაახლოებით 52 residual observation დარჩა; Prophet ამ მოკლე რიგზე trend/seasonality-ს სწავლობდა და validation-ში ხშირად დიდ დადებით კორექციას აბრუნებდა.
+
+Notebook-ის პირველივე `(Store=1, Dept=1)` მაგალითში residual prediction-ები დაახლოებით `+6,625`, `+6,547`, `+7,781`, `+8,877`, `+13,098` იყო. ეს მნიშვნელობები seasonal-naive forecast-ს დაემატა. როცა base forecast უკვე ახლოსაა რეალურ გაყიდვასთან, ასეთი დიდი დამატება სისტემურ over-prediction-ს ქმნის. WMAE-ში holiday კვირებს weight `5` აქვს, ამიტომ holiday-ზე მსგავსი შეცდომა განსაკუთრებით ძლიერად აზიანებს საბოლოო score-ს.
+
+ეს run ვალიდურია და W&B-ზე სრულად შენახულია, მაგრამ მისი დასკვნა ნათელია:
+
+```text
+Prophet უნდა იყოს კონტროლირებული დამატება seasonal naive-სთან,
+არა თავისუფალი residual კორექტორი მოკლე residual ისტორიაზე.
+```
+
 ## W&B-ზე შენახული ინფორმაცია
 
 ყოველი run W&B-ზე ინახავს:
