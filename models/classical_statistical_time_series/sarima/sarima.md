@@ -139,7 +139,7 @@ Run დალოგდა W&B-ში:
 
 ```text
 Run name: SARIMA_Baseline_Aggregate
-Run URL: https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/balfjn48
+Run URL: https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/3vktfzge
 ```
 
 Run summary:
@@ -177,9 +177,28 @@ Improvement vs seasonal naive: -3.14897%
 
 ანუ ამ baseline setup-ში SARIMA დაახლოებით 3.15%-ით უარესია 52-კვირიან seasonal naive forecast-ზე.
 
+მნიშვნელოვანი დეტალი: ეს პირველი SARIMA baseline ჯერ რეალურად **seasonal component-ს არ იყენებს**. Notebook-ში გამოყენებულია მხოლოდ non-seasonal order:
+
+```text
+order = (1, 1, 1)
+seasonal_order = disabled / not tuned yet
+```
+
+ამიტომ შედეგიც ზუსტად ემთხვევა ARIMA baseline-ის result-ს. ეს მოსალოდნელი იყო, რადგან ამ ეტაპზე მოდელი იგივე aggregate weekly sales-ს სწავლობს და იგივე `last_year_share` allocation logic-ს იყენებს. განსხვავება მხოლოდ naming/architecture folder-შია, მაგრამ seasonal part ჯერ არ დაგვიმატებია.
+
+შედეგის ინტერპრეტაცია:
+
+- baseline SARIMA validation WMAE არის `1856.86053`;
+- seasonal naive არის `1800.17359`;
+- SARIMA baseline seasonal naive-ზე `56.69` WMAE-ით უარესია;
+- relative გაუარესება არის `-3.14897%`;
+- მთავარი მიზეზი ისაა, რომ aggregate model Store-Dept-level yearly seasonality-ს პირდაპირ ვერ ხედავს.
+
+ამ baseline-ის მიზანი იყო starting point-ის მიღება. რეალური SARIMA improvement უნდა გამოჩნდეს მხოლოდ მაშინ, როცა დავამატებთ seasonal order-ს, მაგალითად weekly retail data-სთვის წლიურ სეზონურობაზე მორგებულ კომპონენტს. ამ dataset-ში 52-week seasonality ძლიერია, ამიტომ შემდეგი meaningful ნაბიჯი სწორედ seasonal component-ის დამატება და შედარებაა.
+
 ## SARIMA order search ექსპერიმენტი
 
-baseline-ის შემდეგ `model_experiment_SARIMA.ipynb`-ში დავამატეთ controlled brute-force search მხოლოდ SARIMA order-ზე და allocation strategy-ზე. აქ არ არის SARIMAX და არ არის SARIMA. მიზანი იყო გვენახა, გაუმჯობესდებოდა თუ არა pure aggregate SARIMA უკეთესი `(p, d, q)` order-ით.
+baseline-ის შემდეგ `model_experiment_SARIMA.ipynb`-ში დავამატეთ controlled brute-force search მხოლოდ SARIMA order-ზე და allocation strategy-ზე. აქ არ არის SARIMAX და seasonal component ჯერ ცალკე tuning-ს საჭიროებს. მიზანი იყო გვენახა, გაუმჯობესდებოდა თუ არა pure aggregate SARIMA უკეთესი `(p, d, q)` order-ით.
 
 გამოყენებული grid:
 
