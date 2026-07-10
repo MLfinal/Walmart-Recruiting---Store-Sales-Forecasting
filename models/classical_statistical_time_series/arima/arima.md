@@ -177,6 +177,159 @@ Improvement vs seasonal naive: -3.14897%
 
 ანუ ამ baseline setup-ში ARIMA დაახლოებით 3.15%-ით უარესია 52-კვირიან seasonal naive forecast-ზე.
 
+## ARIMA order search ექსპერიმენტი
+
+baseline-ის შემდეგ `model_experiment_ARIMA.ipynb`-ში დავამატეთ controlled brute-force search მხოლოდ ARIMA order-ზე და allocation strategy-ზე. აქ არ არის ARIMAX და არ არის SARIMA. მიზანი იყო გვენახა, გაუმჯობესდებოდა თუ არა pure aggregate ARIMA უკეთესი `(p, d, q)` order-ით.
+
+გამოყენებული grid:
+
+```python
+p = [0, 1, 2]
+d = [0, 1]
+q = [0, 1, 2]
+```
+
+სულ გამოვიდა:
+
+```text
+18 ARIMA order
+```
+
+ყოველი order შემოწმდა ორი allocation strategy-ით:
+
+```text
+last_year_share
+blended_share
+```
+
+ანუ ჯამში გაკეთდა 36 validation comparison.
+
+### საუკეთესო შედეგი
+
+საუკეთესო შედეგი მივიღეთ:
+
+```text
+order: (1, 0, 2)
+allocation: last_year_share
+Validation WMAE: 1829.879987
+Validation MAE: 1840.653606
+Validation RMSE: 3937.045372
+Improvement vs seasonal naive: -1.650196%
+```
+
+ეს უკეთესია baseline ARIMA-ზე:
+
+```text
+baseline ARIMA(1,1,1): 1856.86053
+best searched ARIMA(1,0,2): 1829.87999
+```
+
+გაუმჯობესება:
+
+```text
+1856.86 -> 1829.88
+```
+
+ანუ order search-მა ARIMA baseline დაახლოებით `26.98` WMAE-ით გააუმჯობესა.
+
+მაგრამ seasonal naive-ს მაინც ვერ აჯობა:
+
+```text
+seasonal naive: 1800.17359
+best ARIMA:     1829.87999
+```
+
+best ARIMA ჯერ კიდევ დაახლოებით `29.71` WMAE-ით უარესია seasonal naive-ზე.
+
+### Top results
+
+საუკეთესო რამდენიმე trial:
+
+| Rank | Trial | Order | Allocation | Validation WMAE | Improvement vs seasonal naive |
+| ---: | ---: | --- | --- | ---: | ---: |
+| 1 | 8 | `(1, 0, 2)` | `last_year_share` | `1829.879987` | `-1.650196%` |
+| 2 | 14 | `(2, 0, 2)` | `last_year_share` | `1834.686858` | `-1.917219%` |
+| 3 | 1 | `(0, 0, 1)` | `last_year_share` | `1835.703255` | `-1.973680%` |
+| 4 | 0 | `(0, 0, 0)` | `last_year_share` | `1836.591341` | `-2.023013%` |
+| 5 | 5 | `(0, 1, 2)` | `last_year_share` | `1846.058549` | `-2.548918%` |
+
+### რატომ გახდა `(1, 0, 2)` საუკეთესო
+
+ჩემი აზრით, `(1, 0, 2)` საუკეთესო იმიტომ გამოვიდა, რომ ამ aggregate weekly sales series-ზე differencing (`d=1`) ზედმეტად აგრესიული აღმოჩნდა.
+
+საუკეთესო result-ს აქვს:
+
+```text
+d = 0
+```
+
+ეს ნიშნავს, რომ model-ს უკეთ აწყობდა level-ის შენარჩუნება და არა weekly total sales-ის differenced series-ზე მუშაობა. Walmart total weekly sales-ში yearly/holiday pattern და level information ძალიან მნიშვნელოვანია. როცა `d=1` ვიყენებთ, trend/level ნაწილი იშლება და model შეიძლება კარგავს იმ signal-ს, რომელიც row-level allocation-საც სჭირდება.
+
+ეს ჩანს შედეგებშიც:
+
+```text
+(1,1,1) last_year_share WMAE = 1856.86
+(1,0,2) last_year_share WMAE = 1829.88
+```
+
+ანუ იგივე aggregate approach-ში `d=0` უკეთესი აღმოჩნდა.
+
+`p=1` ეხმარება ბოლო weekly total sales-ის autoregressive signal-ის დაჭერაში, ხოლო `q=2` ეხმარება short-term error/noise correction-ს. მაგრამ ეს მაინც aggregate-level model-ია, ამიტომ Store-Dept სპეციფიკურ seasonal pattern-ს სრულად ვერ სწავლობს.
+
+### რატომ იყო `last_year_share` ყოველთვის უკეთესი `blended_share`-ზე
+
+ყველა საუკეთესო trial იყენებს:
+
+```text
+allocation = last_year_share
+```
+
+`blended_share` ყველა შემთხვევაში აშკარად უარესია. მაგალითად:
+
+```text
+(1,0,2) last_year_share WMAE = 1829.88
+(1,0,2) blended_share   WMAE = 1995.64
+```
+
+ეს ნიშნავს, რომ Walmart dataset-ში Store-Dept distribution-ისთვის ერთი წლის წინანდელი share უფრო ძლიერი signal-ია, ვიდრე recent average-ის დამატება.
+
+ჩემი ინტერპრეტაცია:
+
+- weekly sales-ს აქვს ძლიერი yearly seasonality;
+- ბევრი department seasonal demand-ს იმეორებს წლიდან წლამდე;
+- recent average შეიძლება seasonal structure-ს აბუნდოვანებდეს;
+- validation period-ში last-year distribution უკეთ ემთხვევა future distribution-ს.
+
+ამიტომ `blended_share`-მა ვერ გააუმჯობესა result. პირიქით, recent share-ის 30%-მა შეიტანა noise და WMAE გაზარდა.
+
+### რატომ მაინც ვერ აჯობა seasonal naive-ს
+
+მიუხედავად იმისა, რომ order search-მა baseline ARIMA გააუმჯობესა, საუკეთესო ARIMA მაინც უარესია seasonal naive-ზე:
+
+```text
+seasonal naive WMAE = 1800.17
+best ARIMA WMAE     = 1829.88
+```
+
+მთავარი მიზეზი არის ის, რომ seasonal naive row-level forecast-ს პირდაპირ იღებს იგივე Store-Dept-ის 52 კვირით ძველი sales-იდან. ეს ძალიან ძლიერი baseline-ია ამ competition-ში.
+
+ARIMA კი აკეთებს ორეტაპიან approximation-ს:
+
+```text
+total weekly sales forecast
+        ↓
+row-level allocation
+```
+
+ამ პროცესში Store-Dept-level information იკარგება. Aggregate forecast შეიძლება მისაღები იყოს, მაგრამ თუ allocation ცოტათი მაინც ცდება, Kaggle/WMAE row-level metric ამას მკაცრად სჯის.
+
+ამიტომ best ARIMA result-ის შეფასება ასეთია:
+
+- baseline ARIMA-ზე უკეთესია;
+- `blended_share`-ზე აშკარად უკეთესია;
+- seasonal naive-ზე მაინც უარესია;
+- final model candidate არ არის, მაგრამ useful diagnostic experiment არის.
+
 ## რატომ გამოვიდა ARIMA seasonal naive-ზე უარესი
 
 ჩემი შეფასებით, მთავარი მიზეზი ისაა, რომ Walmart weekly sales ძალიან ძლიერი yearly seasonality-ით მუშაობს. ბევრი Store-Dept series-ისთვის ყველაზე ძლიერი signal არის:
