@@ -221,6 +221,56 @@ blend       naive       raw Prophet
 
 v3 W&B run-ში მთავარი score არის `validation/wmae` — ეს final blend-ის WMAE-ა. დამატებით ინახება `validation/raw_prophet_wmae` და `validation/seasonal_naive_wmae`, რათა ზუსტად ჩანდეს, რომ გაუმჯობესება ერთ-ერთი კომპონენტის სახელის შეცვლა კი არა, რეალური blend effect-ია.
 
+## Experiment v4 — event-aware holiday windows
+
+v3-ში ყველა holiday Prophet-ისთვის ერთი `walmart_holiday` კატეგორია იყო. v4-ში seasonal-naive/Prophet 50/50 blend უცვლელი დავტოვეთ და შევცვალეთ მხოლოდ calendar feature engineering. `IsHoliday`-ის flagged კვირები თარიღის month-ით ოთხ ცნობილ Walmart event-ად დავყავით:
+
+```text
+February  → Super Bowl
+September → Labor Day
+November  → Thanksgiving
+December  → Christmas
+```
+
+ყველა event ერთნაირად არ მოქმედებს. Thanksgiving და Christmas-ის გაყიდვების მნიშვნელოვანი ნაწილი event კვირამდე მოდის, ამიტომ Prophet holiday calendar-ში მათ დაემატა `lower_window = -7` დღე. Weekly data Friday-ზეა, ამიტომ ეს ზუსტად წინა Friday/week-ს მოიცავს. Super Bowl და Labor Day მხოლოდ თავად event კვირაზე დარჩა.
+
+```text
+Super Bowl     = [0, 0]
+Labor Day      = [0, 0]
+Thanksgiving  = [-7, 0]
+Christmas     = [-7, 0]
+```
+
+ეს feature engineering სრულად leakage-safe-ია: holiday date და event type forecast horizon-მდე ცნობილია; არც target და არც future external value არ გამოყენებულა.
+
+v4 full all-series result:
+
+```text
+v4 blend WMAE                = 1367.4470
+v4 blend MAE                 = 1353.8687
+v4 raw Prophet WMAE          = 1534.8594
+seasonal naive WMAE          = 1604.2697
+v3 blend WMAE                = 1402.2612
+improvement vs v3            = 34.8143 WMAE  (2.48%)
+improvement vs seasonal naive= 14.7620%
+improvement vs raw Prophet   = 10.9073%
+fit_ok / fallback            = 3259 / 72
+fit error                    = 0
+elapsed time                 = 8.9578 minutes
+```
+
+მთავარი შედეგი ისაა, რომ calendar representation-მა არა მხოლოდ blend, არამედ raw Prophet-იც გააძლიერა:
+
+```text
+raw Prophet, generic holiday   = 1625.4781
+raw Prophet, event windows     = 1534.8594
+improvement                    = 90.6187 WMAE
+```
+
+v3-ში blend-ის სიძლიერე იყო yearly lookup და smooth Prophet forecast-ის შეცდომების კომპენსაცია. v4-ში Prophet-ს უკვე უკეთ ესმის, რომ Thanksgiving/Christmas effect event-day-only კი არა, წინასწარი demand window-იცაა. ამის გამო მისი component seasonal naive-სთან უფრო სასარგებლო complementary signal გახდა და final blend `1367.45`-მდე ჩამოვიდა.
+
+ამ ეტაპზე v4 არის Prophet family-ის მიმდინარე საუკეთესო valid model. W&B-ში ინახება event calendar table, event-window configuration, raw Prophet/seasonal-naive/blend metrics, validation predictions, status table, plot და validation artifact.
+
 ## W&B-ზე შენახული ინფორმაცია
 
 ყოველი run W&B-ზე ინახავს:
@@ -247,6 +297,6 @@ Prophet baseline დასრულებულია როგორც სრ�
 status = working, reproducible baseline; not stronger than seasonal naive
 ```
 
-მან დაადასტურა, რომ per-series classical forecasting და W&B logging სწორად მუშაობს. Direct baseline Prophet-ის `1625.48` WMAE-მ აჩვენა, რომ trend/yearly seasonality/holiday component მარტო ვერ ჯობდა Walmart-ის ძლიერი კონკრეტული-კვირა-წინა-წლის signal-ს. მაგრამ v3 blend-მა ამ ორ მიდგომას ერთად `1402.26` WMAE მოუტანა და Prophet family-ის მიმდინარე საუკეთესო validation მოდელი გახდა.
+მან დაადასტურა, რომ per-series classical forecasting და W&B logging სწორად მუშაობს. Direct baseline Prophet-ის `1625.48` WMAE-მ აჩვენა, რომ trend/yearly seasonality/holiday component მარტო ვერ ჯობდა Walmart-ის ძლიერი კონკრეტული-კვირა-წინა-წლის signal-ს. v3 blend-მა ეს `1402.26`-მდე ჩამოიყვანა, ხოლო v4 event-aware holiday engineering-მა მიმდინარე საუკეთესო valid Prophet result — `1367.45` WMAE — მოგვცა.
 
 External-covariate v1-მა კი დაადასტურა, რომ feature imputation დროით უნდა შემოწმდეს: მომავალიდან backward fill არ შეიძლება. ამიტომ v1-ის მაღალი WMAE model-performance conclusion არ არის; ის არის მონაცემის მომზადების შეცდომის დაფიქსირებული შედეგი.
