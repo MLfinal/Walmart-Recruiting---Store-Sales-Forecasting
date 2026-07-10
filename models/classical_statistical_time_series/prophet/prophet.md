@@ -108,6 +108,32 @@ lower WMAE is better
 
 ამის მიზეზია Walmart-ის sales signal-ის ბუნება: promotion, holiday spike, rare departments და store-specific level shifts ხშირად არ არის smooth. Prophet თითო series-ს იზოლირებულად სწავლობს, ამიტომ ერთი department-ის ან store-ის pattern სხვა series-ს არ ეხმარება. Seasonal naive კი პირდაპირ იყენებს წინა წლის შესაბამის observation-ს.
 
+## Experiment v1 — external covariates
+
+პირველ experiment-ში baseline Prophet-ისთვის დავამატეთ `features.csv`-ის ცხრა future-known covariate:
+
+```text
+Temperature, Fuel_Price, CPI, Unemployment,
+MarkDown1, MarkDown2, MarkDown3, MarkDown4, MarkDown5
+```
+
+მათი join კეთდებოდა `(Store, Date)`-ით და Prophet-ში `add_regressor()`-ით გადადიოდა. იდეა იყო, რომ მხოლოდ calendar/holiday-ს ნაცვლად მოდელს store-level ეკონომიკური და promotion ინფორმაცია ჰქონოდა. Run ისევ ყველა 3,331 series-ზე და იმავე 39-week split-ზე შესრულდა.
+
+```text
+Prophet v1 WMAE             = 4236.6848
+Prophet v1 MAE              = 4005.8699
+seasonal naive WMAE         = 1604.2697
+relative change vs naive    = -164.0881%
+fit_ok / fallback           = 3259 / 72
+elapsed time                = 9.5987 minutes
+```
+
+ეს შედეგი baseline-ზე ბევრად უარესია, მაგრამ v1-ის მთავარი დასკვნა უფრო მნიშვნელოვანი ტექნიკური აღმოჩენაა. Notebook output-ში 2010 წლის რიგებისთვის `MarkDown1`–`MarkDown5` უკვე არანულოვანი მნიშვნელობებით ჩანდა, მიუხედავად იმისა, რომ Markdown data რეალურად მოგვიანებით გახდა ხელმისაწვდომი. მიზეზი იყო იმპუტაციის `ffill().bfill()` ნაბიჯი: `bfill()` თითო Store-ში პირველი შემდგომი Markdown მნიშვნელობას ადრინდელ თარიღებზეც ავრცელებდა.
+
+ამგვარად v1-ის covariate history ხელოვნურად იყო შევსებული მომავლის feature მნიშვნელობებით. target `Weekly_Sales` არ გაჟონა, თუმცა ასეთი backfill მაინც არღვევს honest temporal feature preparation-ს და ამ run-ს სამართლიან model comparison-ად არ ვითვლით. `4236.68` WMAE შენახულია W&B-ზე როგორც აღმოჩენილი, წარუმატებელი ექსპერიმენტი; იგი არ გამოიყენება Prophet-ის ხარისხის საბოლოო შეფასებად.
+
+ამ run-მა ასევე აჩვენა, რომ all-series external-regressor loop ტექნიკურად მუშაობდა: fit error არ ყოფილა, 72 fallback ისევ მხოლოდ sparse-history series-ებზე მოვიდა, ხოლო runtime დაახლოებით 9.6 წუთი იყო.
+
 ## W&B-ზე შენახული ინფორმაცია
 
 ყოველი run W&B-ზე ინახავს:
@@ -135,3 +161,5 @@ status = working, reproducible baseline; not stronger than seasonal naive
 ```
 
 მან დაადასტურა, რომ per-series classical forecasting და W&B logging სწორად მუშაობს. ამავე დროს, `1625.48` WMAE-მ აჩვენა, რომ baseline Prophet-ს მარტო trend/yearly seasonality/holiday component-ებით ჯერ არ შეუძლია Walmart-ის ძლიერი კონკრეტული-კვირა-წინა-წლის signal-ის გადაჭარბება.
+
+External-covariate v1-მა კი დაადასტურა, რომ feature imputation დროით უნდა შემოწმდეს: მომავალიდან backward fill არ შეიძლება. ამიტომ v1-ის მაღალი WMAE model-performance conclusion არ არის; ის არის მონაცემის მომზადების შეცდომის დაფიქსირებული შედეგი.
