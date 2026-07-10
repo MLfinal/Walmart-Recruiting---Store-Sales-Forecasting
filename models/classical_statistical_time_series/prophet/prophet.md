@@ -170,6 +170,57 @@ Prophet უნდა იყოს კონტროლირებული დ
 არა თავისუფალი residual კორექტორი მოკლე residual ისტორიაზე.
 ```
 
+## Experiment v3 — 50/50 seasonal-naive + direct Prophet blend
+
+v3-ში residual target აღარ გამოგვიყენებია. თითო series-ზე ისევ baseline-ის პირდაპირი Prophet დავაფიტეთ, პარალელურად კი 52-week seasonal-naive პროგნოზი დავტოვეთ. საბოლოო prediction fixed 50/50 საშუალოა:
+
+```text
+final_prediction(t) =
+0.50 × seasonal_naive_52(t) +
+0.50 × direct_Prophet(t)
+```
+
+კოდში `fit_predict_prophet_for_series()` ინახავს ორივე კომპონენტს:
+
+```text
+SeasonalNaive52       → შარშანდელი იგივე კვირის გაყიდვა
+RawProphetPrediction  → baseline Prophet-ის პირდაპირი forecast
+Prediction            → მათი 50/50 blend
+```
+
+ასე W&B-სა და CSV-ში ცალკე ჩანს final blend, raw Prophet და seasonal-naive reference. Sparse-history 72 series-ზე Prophet fallback თვითონ seasonal naive-ა, ამიტომ ამ series-ებზე blend-იც ზუსტად seasonal naive რჩება და ზედმეტ რისკს არ ქმნის.
+
+სრული 3,331-series run:
+
+```text
+blend WMAE                     = 1402.2612
+blend MAE                      = 1373.0802
+raw Prophet WMAE               = 1625.4781
+seasonal naive WMAE            = 1604.2697
+improvement vs seasonal naive  = 12.5919%
+improvement vs raw Prophet     = 13.7324%
+fit_ok / fallback              = 3259 / 72
+fit error                      = 0
+elapsed time                   = 7.5925 minutes
+```
+
+ეს არის Prophet ოჯახის პირველი შედეგი, რომელმაც ორივე დამოუკიდებელ კომპონენტს აჯობა:
+
+```text
+1402.26 < 1604.27 < 1625.48
+blend       naive       raw Prophet
+```
+
+თავდაპირველად blend-ისგან მხოლოდ baseline Prophet-ზე უსაფრთხო გაუმჯობესებას ველოდით: absolute error convex-ია და ორი prediction-ის საშუალოს WMAE არ აღემატება მათი WMAE-ების საშუალოს. რეალური შედეგი ბევრად უკეთესი გამოვიდა. ეს ნიშნავს, რომ seasonal naive და raw Prophet ერთნაირ შეცდომას არ უშვებენ:
+
+- seasonal naive ზუსტად ინარჩუნებს კონკრეტული Store-Dept-ის წინა წლის კვირის დონეს, მაგრამ ახალი trend/holiday ცვლილება შეიძლება გამორჩეს;
+- raw Prophet trend-სა და holiday structure-ს ამატებს, მაგრამ smooth forecast-ით ზოგჯერ spike-ს ან კონკრეტულ department-level დონეს აცდენს;
+- 50/50 blend-ში ამ განსხვავებული შეცდომების ნაწილი ერთმანეთს აუქმებს.
+
+მაგალითად პირველ series-ზე seasonal naive და raw Prophet სხვადასხვა მხარეს იხრებოდნენ, ხოლო საშუალო ხშირად რეალურ გაყიდვასთან ახლოს აღმოჩნდა. ამიტომ blend-ის მოგება არ მოდის მხოლოდ „რისკის შემცირებიდან“; ის მოდის ორი განსხვავებული signal-ის გაერთიანებიდან.
+
+v3 W&B run-ში მთავარი score არის `validation/wmae` — ეს final blend-ის WMAE-ა. დამატებით ინახება `validation/raw_prophet_wmae` და `validation/seasonal_naive_wmae`, რათა ზუსტად ჩანდეს, რომ გაუმჯობესება ერთ-ერთი კომპონენტის სახელის შეცვლა კი არა, რეალური blend effect-ია.
+
 ## W&B-ზე შენახული ინფორმაცია
 
 ყოველი run W&B-ზე ინახავს:
@@ -196,6 +247,6 @@ Prophet baseline დასრულებულია როგორც სრ�
 status = working, reproducible baseline; not stronger than seasonal naive
 ```
 
-მან დაადასტურა, რომ per-series classical forecasting და W&B logging სწორად მუშაობს. ამავე დროს, `1625.48` WMAE-მ აჩვენა, რომ baseline Prophet-ს მარტო trend/yearly seasonality/holiday component-ებით ჯერ არ შეუძლია Walmart-ის ძლიერი კონკრეტული-კვირა-წინა-წლის signal-ის გადაჭარბება.
+მან დაადასტურა, რომ per-series classical forecasting და W&B logging სწორად მუშაობს. Direct baseline Prophet-ის `1625.48` WMAE-მ აჩვენა, რომ trend/yearly seasonality/holiday component მარტო ვერ ჯობდა Walmart-ის ძლიერი კონკრეტული-კვირა-წინა-წლის signal-ს. მაგრამ v3 blend-მა ამ ორ მიდგომას ერთად `1402.26` WMAE მოუტანა და Prophet family-ის მიმდინარე საუკეთესო validation მოდელი გახდა.
 
 External-covariate v1-მა კი დაადასტურა, რომ feature imputation დროით უნდა შემოწმდეს: მომავალიდან backward fill არ შეიძლება. ამიტომ v1-ის მაღალი WMAE model-performance conclusion არ არის; ის არის მონაცემის მომზადების შეცდომის დაფიქსირებული შედეგი.
