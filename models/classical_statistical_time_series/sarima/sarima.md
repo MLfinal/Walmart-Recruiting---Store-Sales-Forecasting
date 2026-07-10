@@ -196,9 +196,16 @@ seasonal_order = disabled / not tuned yet
 
 ამ baseline-ის მიზანი იყო starting point-ის მიღება. რეალური SARIMA improvement უნდა გამოჩნდეს მხოლოდ მაშინ, როცა დავამატებთ seasonal order-ს, მაგალითად weekly retail data-სთვის წლიურ სეზონურობაზე მორგებულ კომპონენტს. ამ dataset-ში 52-week seasonality ძლიერია, ამიტომ შემდეგი meaningful ნაბიჯი სწორედ seasonal component-ის დამატება და შედარებაა.
 
-## SARIMA order search ექსპერიმენტი
+## model_sarima / SARIMA order search ექსპერიმენტი
 
-baseline-ის შემდეგ `model_experiment_SARIMA.ipynb`-ში დავამატეთ controlled brute-force search მხოლოდ SARIMA order-ზე და allocation strategy-ზე. აქ არ არის SARIMAX და seasonal component ჯერ ცალკე tuning-ს საჭიროებს. მიზანი იყო გვენახა, გაუმჯობესდებოდა თუ არა pure aggregate SARIMA უკეთესი `(p, d, q)` order-ით.
+ეს შედეგები უკვე **baseline_sarima.ipynb-ის შედეგები აღარ არის**. ეს არის `model_experiment_SARIMA.ipynb` / `model_sarima` ეტაპი, სადაც baseline-ის შემდეგ დავამატეთ controlled brute-force search მხოლოდ SARIMA order-ზე და allocation strategy-ზე. აქ არ არის SARIMAX და seasonal component ჯერ ცალკე tuning-ს საჭიროებს. მიზანი იყო გვენახა, გაუმჯობესდებოდა თუ არა pure aggregate SARIMA უკეთესი `(p, d, q)` order-ით.
+
+W&B run:
+
+```text
+Run name: SARIMA_Order_Allocation_Experiment
+Run URL: https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/rejvau3e
+```
 
 გამოყენებული grid:
 
@@ -223,42 +230,50 @@ blended_share
 
 ანუ ჯამში გაკეთდა 36 validation comparison.
 
-### საუკეთესო შედეგი
+### model_sarima-ის საუკეთესო შედეგი
 
-საუკეთესო შედეგი მივიღეთ:
+`model_sarima` ექსპერიმენტში საუკეთესო შედეგი მივიღეთ:
 
 ```text
 order: (1, 0, 2)
 allocation: last_year_share
-Validation WMAE: 1829.879987
-Validation MAE: 1840.653606
-Validation RMSE: 3937.045372
-Improvement vs seasonal naive: -1.650196%
+Validation WMAE: 1831.617620
+Validation MAE: 1835.050602
+Validation RMSE: 3920.681681
+Improvement vs seasonal naive: -1.746722%
 ```
 
-ეს უკეთესია baseline SARIMA-ზე:
+ეს უკვე model experiment-ის შედეგია და baseline SARIMA-ზე უკეთესია:
 
 ```text
 baseline SARIMA(1,1,1): 1856.86053
-best searched SARIMA(1,0,2): 1829.87999
+best searched SARIMA(1,0,2): 1831.61762
 ```
 
 გაუმჯობესება:
 
 ```text
-1856.86 -> 1829.88
+1856.86 -> 1831.62
 ```
 
-ანუ order search-მა SARIMA baseline დაახლოებით `26.98` WMAE-ით გააუმჯობესა.
+ანუ `model_sarima` order search-მა SARIMA baseline დაახლოებით `25.24` WMAE-ით გააუმჯობესა.
 
 მაგრამ seasonal naive-ს მაინც ვერ აჯობა:
 
 ```text
 seasonal naive: 1800.17359
-best SARIMA:     1829.87999
+best SARIMA:     1831.61762
 ```
 
-best SARIMA ჯერ კიდევ დაახლოებით `29.71` WMAE-ით უარესია seasonal naive-ზე.
+best SARIMA ჯერ კიდევ დაახლოებით `31.44` WMAE-ით უარესია seasonal naive-ზე.
+
+აქ ერთი logging detail-იც ჩანს: W&B run summary-ში `improvement_vs_seasonal_naive_pct` ბოლო trial-ის მნიშვნელობას აჩვენებს (`-13.35012%`), მაგრამ best result სწორად ჩანს `best_validation_wmae`, `best_order`, `best_allocation` და result table-ში. საბოლოო ანალიზისთვის ვიყენებ table-ის პირველ row-ს:
+
+```text
+best_order = (1, 0, 2)
+best_allocation = last_year_share
+best_validation_wmae = 1831.61762
+```
 
 ### Top results
 
@@ -266,11 +281,11 @@ best SARIMA ჯერ კიდევ დაახლოებით `29.71` WMA
 
 | Rank | Trial | Order | Allocation | Validation WMAE | Improvement vs seasonal naive |
 | ---: | ---: | --- | --- | ---: | ---: |
-| 1 | 8 | `(1, 0, 2)` | `last_year_share` | `1829.879987` | `-1.650196%` |
-| 2 | 14 | `(2, 0, 2)` | `last_year_share` | `1834.686858` | `-1.917219%` |
-| 3 | 1 | `(0, 0, 1)` | `last_year_share` | `1835.703255` | `-1.973680%` |
-| 4 | 0 | `(0, 0, 0)` | `last_year_share` | `1836.591341` | `-2.023013%` |
-| 5 | 5 | `(0, 1, 2)` | `last_year_share` | `1846.058549` | `-2.548918%` |
+| 1 | 8 | `(1, 0, 2)` | `last_year_share` | `1831.617620` | `-1.746722%` |
+| 2 | 5 | `(0, 1, 2)` | `last_year_share` | `1846.058549` | `-2.548918%` |
+| 3 | 10 | `(1, 1, 1)` | `last_year_share` | `1856.860525` | `-3.148970%` |
+| 4 | 17 | `(2, 1, 2)` | `last_year_share` | `1889.000495` | `-4.934352%` |
+| 5 | 5 | `(0, 1, 2)` | `blended_share` | `1994.074033` | `-10.771208%` |
 
 ### რატომ გახდა `(1, 0, 2)` საუკეთესო
 
@@ -288,12 +303,22 @@ d = 0
 
 ```text
 (1,1,1) last_year_share WMAE = 1856.86
-(1,0,2) last_year_share WMAE = 1829.88
+(1,0,2) last_year_share WMAE = 1831.62
 ```
 
 ანუ იგივე aggregate approach-ში `d=0` უკეთესი აღმოჩნდა.
 
 `p=1` ეხმარება ბოლო weekly total sales-ის autoregressive signal-ის დაჭერაში, ხოლო `q=2` ეხმარება short-term error/noise correction-ს. მაგრამ ეს მაინც aggregate-level model-ია, ამიტომ Store-Dept სპეციფიკურ seasonal pattern-ს სრულად ვერ სწავლობს.
+
+ამ experiment-ში განსაკუთრებით ცუდად გამოვიდა ზოგი `d=0` order, მაგალითად:
+
+```text
+(0,0,0) WMAE ~= 15952
+(0,0,1) WMAE ~= 15912
+(0,0,2) WMAE ~= 15195
+```
+
+ეს ნიშნავს, რომ level-ის შენარჩუნება თავისით საკმარისი არ არის. როცა AR term არ აქვს ან dynamics ძალიან სუსტია, aggregate forecast პრაქტიკულად ცუდ constant/noisy extrapolation-ად იქცევა და weekly total sales-ს ვერ მიყვება. `(1,0,2)` უკეთესი იმიტომ აღმოჩნდა, რომ `d=0`-ით level-ს ინარჩუნებს, მაგრამ `p=1` და `q=2` მაინც აძლევს short-term dynamics-ს.
 
 ### რატომ იყო `last_year_share` ყოველთვის უკეთესი `blended_share`-ზე
 
@@ -306,8 +331,8 @@ allocation = last_year_share
 `blended_share` ყველა შემთხვევაში აშკარად უარესია. მაგალითად:
 
 ```text
-(1,0,2) last_year_share WMAE = 1829.88
-(1,0,2) blended_share   WMAE = 1995.64
+(1,0,2) last_year_share WMAE = 1831.62
+(1,0,2) blended_share   WMAE = 2004.48
 ```
 
 ეს ნიშნავს, რომ Walmart dataset-ში Store-Dept distribution-ისთვის ერთი წლის წინანდელი share უფრო ძლიერი signal-ია, ვიდრე recent average-ის დამატება.
@@ -327,7 +352,7 @@ allocation = last_year_share
 
 ```text
 seasonal naive WMAE = 1800.17
-best SARIMA WMAE     = 1829.88
+best SARIMA WMAE     = 1831.62
 ```
 
 მთავარი მიზეზი არის ის, რომ seasonal naive row-level forecast-ს პირდაპირ იღებს იგივე Store-Dept-ის 52 კვირით ძველი sales-იდან. ეს ძალიან ძლიერი baseline-ია ამ competition-ში.
@@ -389,7 +414,7 @@ Improvement vs seasonal naive: -42.413569%
 | --- | --- | ---: | ---: |
 | Seasonal naive | 52-week row-level lag | `1800.17359` | reference |
 | Baseline SARIMA | `(1,1,1)` + `last_year_share` | `1856.86053` | `-3.14897%` |
-| Tuned SARIMA | `(1,0,2)` + `last_year_share` | `1829.87999` | `-1.65020%` |
+| Tuned SARIMA | `(1,0,2)` + `last_year_share` | `1831.61762` | `-1.74672%` |
 | SARIMAX | `(0,0,0)` + exog + `last_year_share` | `2563.69145` | `-42.41357%` |
 
 ამ ცხრილიდან ჩანს, რომ SARIMAX ამ ფორმით არ გაუმჯობესდა. პირიქით, external regressors-მა model-ის performance მნიშვნელოვნად გააუარესა.
@@ -451,14 +476,14 @@ last_year_share
 SARIMAX-ის დამატებამ არ გააუმჯობესა SARIMA:
 
 ```text
-Tuned SARIMA WMAE:  1829.88
+Tuned SARIMA WMAE:  1831.62
 Best SARIMAX WMAE: 2563.69
 ```
 
 გაუარესება:
 
 ```text
-2563.69 - 1829.88 = 733.81 WMAE
+2563.69 - 1831.62 = 732.07 WMAE
 ```
 
 ეს ძალიან დიდი სხვაობაა. ამიტომ ამ კონკრეტული implementation-ით SARIMAX არ უნდა ჩაითვალოს improvement-ად.
@@ -515,7 +540,7 @@ Kaggle test period-ში ეს features, როგორც ჩანს, გ�
 მნიშვნელოვანია, რომ ეს არ ნიშნავს, თითქოს SARIMAX validation-ზე უკეთესი იყო. პირიქით:
 
 ```text
-Validation tuned SARIMA WMAE:  1829.88
+Validation tuned SARIMA WMAE:  1831.62
 Validation SARIMAX WMAE:       2563.69
 Kaggle SARIMA score:           3842
 Kaggle SARIMAX score:          3525
