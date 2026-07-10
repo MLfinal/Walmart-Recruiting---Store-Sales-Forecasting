@@ -1,4 +1,4 @@
-# Prophet baseline
+# Prophet
 
 ფოლდერი:
 
@@ -6,254 +6,132 @@
 models/classical_statistical_time_series/prophet
 ```
 
-ამ ნაწილში დავიწყე classical statistical time-series models. პირველი baseline არის Prophet, რადგან ის კლასიკური/სტატისტიკური forecasting model-ია, რომელიც trend-ს, seasonality-ს, holiday effect-ს და changepoints-ს ცალკე კომპონენტებად სწავლობს.
-
-Prophet განსხვავდება DLinear/N-BEATS/TFT-ისგან იმით, რომ აქ ერთი global neural model არ გვაქვს. Prophet ჩვეულებრივ ერთ time series-ზე fit-დება, ამიტომ Walmart-ის data-ზე ლოგიკა ასეთია:
+ამ ნაწილში დავიწყე classical statistical time-series models. პირველი მოდელია Prophet: ის თითოეული დროითი რიგის გაყიდვას trend-, seasonality-, holiday- და changepoint-კომპონენტებად აღწერს. Walmart-ის შემთხვევაში ერთი რიგი არის ერთი `(Store, Dept)` წყვილი, ამიტომ Prophet global model არ არის:
 
 ```text
-ერთი Store + Dept = ერთი Prophet model
+ერთი Store + Dept = ერთი დამოუკიდებელი Prophet model
 ```
 
-ამიტომ baseline-ში თავიდანვე არ გავუშვი ყველა `3331` Store-Dept pair. Colab-friendly baseline-ისთვის ავიღე top `300` highest-volume series.
+ეს განსხვავდება DLinear/N-BEATS/TFT-ისგან, სადაც ერთი neural model ბევრ series-ს ერთად სწავლობს, და tree-based მოდელებისგანაც, სადაც ერთი supervised model ყველა row-ზე მუშაობს.
 
-## Notebook
+## Notebook-ის flow
 
-ფაილი:
+ფაილი: `baseline_prophet.ipynb`.
+
+Notebook რიგრიგობით აკეთებს შემდეგს:
+
+1. Colab-ში აყენებს `prophet`, `wandb` და საჭირო ბიბლიოთეკებს; შემდეგ კითხულობს `train.csv`, `test.csv`, `features.csv`, `stores.csv`.
+2. თარიღით ყოფს მონაცემს: ბოლო `39` train კვირა არის validation (`2012-02-03` → `2012-10-26`), რადგან Kaggle test horizon-იც 39 კვირაა. Prophet მხოლოდ წინა პერიოდზე (`2010-02-05` → `2012-01-27`) fit-დება.
+3. აგებს Store-Dept გაყიდვების panel-ს და პარალელურად ითვლის 52-week seasonal naive-ს: validation კვირის პროგნოზია იმავე series-ის გაყიდვა ზუსტად 52 კვირით ადრე.
+4. ქმნის Walmart holiday calendar-ს `train.csv` და `test.csv`-ის `IsHoliday` სვეტიდან და გადასცემს მას Prophet-ს.
+5. `fit_predict_prophet_for_series()` თითო series-ის `Date → ds`, `Weekly_Sales → y` ფორმატს აგებს, fit-ავს Prophet-ს და აბრუნებს validation prediction-ებს.
+6. თუ series-ს ძალიან ცოტა არანულოვანი ისტორია აქვს ან fit მოულოდნელად ჩავარდება, ფუნქცია იმ series-ზე იყენებს 52-week seasonal-naive fallback-ს. ეს ნიშნავს, რომ სრული run არასოდეს წყდება ერთი პრობლემური department-ის გამო.
+7. ბოლოს ითვლება WMAE/MAE, იქმნება diagnostics და ყველაფერი იგზავნება W&B-ზე artifact-თან ერთად. `run_final_refit=False` იყო, რადგან ეს ეტაპი მხოლოდ validation baseline-ია და არა Kaggle submission.
+
+## Metric და baseline logic
+
+Kaggle-ის metric არის weighted MAE:
 
 ```text
-baseline_prophet.ipynb
+holiday row weight = 5
+ordinary row weight = 1
 ```
 
-Notebook-ის მთავარი flow:
-
-1. Colab dependencies
-   - `prophet`
-   - `wandb`
-   - `pandas`
-   - `numpy`
-   - `matplotlib`
-
-2. data loading
-   - `train.csv`
-   - `test.csv`
-   - `features.csv`
-   - `stores.csv`
-
-3. chronological validation split
-   - ბოლო `39` კვირა validation;
-   - იგივე horizon აქვს Kaggle test set-ს;
-   - fit period მთავრდება `2012-01-27`;
-   - validation period არის `2012-02-03` → `2012-10-26`.
-
-4. top-series selection
-   - თითო Store-Dept pair-ის total sales ითვლება;
-   - ვიღებთ top `300` series-ს;
-   - ამით Prophet baseline სწრაფად ეშვება და შეგვიძლია ჯერ იდეა შევამოწმოთ.
-
-5. seasonal naive reference
-   - თითო validation კვირაზე ვიყენებთ იგივე Store-Dept გაყიდვას 52 კვირით ადრე;
-   - ეს არის მთავარი reference, რადგან Walmart weekly sales strongly yearly-seasonal არის.
-
-6. Prophet fit loop
-   - თითო selected Store-Dept pair-ზე ცალკე Prophet model fit-დება;
-   - target column გადადის Prophet format-ში:
+ამიტომ ვიყენებთ WMAE-ს ყველა მოდელში. Seasonal naive განსაკუთრებით ძლიერი reference-ია Walmart-ისთვის, რადგან ხშირად ყველაზე მნიშვნელოვანი ინფორმაციაა:
 
 ```text
-Date         → ds
-Weekly_Sales → y
+იგივე Store + იგივე Dept + იგივე კვირა შარშან
 ```
 
-7. WMAE evaluation
-   - metric არის Kaggle-style WMAE;
-   - holiday row weight = `5`;
-   - normal row weight = `1`.
+Prophet-ის მიზანი იყო ამ მარტივ lookup-ს trend, smooth yearly seasonality და holiday effect-ით გადაეჯობა.
 
-8. W&B logging
-   - metrics;
-   - prediction table;
-   - series fit/fallback table;
-   - weekly errors;
-   - diagnostic plot;
-   - artifact with CSVs/config/metrics.
+## პირველი ტექნიკური run — top 300 series
 
-## Baseline configuration
+საწყისად run გავუშვით top-300 highest-volume series-ზე, რათა სწრაფად დაგვემტკიცებინა notebook, per-series loop და W&B pipeline.
+
+W&B run: [42duaxjv](https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/42duaxjv)
 
 ```text
-validation_weeks = 39
-top_n_series = 300
-min_history_points = 52
-growth = linear
-yearly_seasonality = True
-weekly_seasonality = False
-daily_seasonality = False
-seasonality_mode = additive
-changepoint_prior_scale = 0.05
-seasonality_prior_scale = 10.0
-holidays_prior_scale = 10.0
-prediction_clip_min = 0.0
-prediction_clip_max = 300000.0
-run_final_refit = False
+series_total                 = 300
+fit_ok                       = 300
+fallback                     = 0
+elapsed_minutes              = 0.7338
+Prophet WMAE                 = 6455.6646
+seasonal naive WMAE          = 6026.2907
+relative change vs naive     = -7.1250%
 ```
 
-`run_final_refit = False` intentional არის. baseline-ის მიზანი ჯერ validation result-ის შემოწმებაა და არა Kaggle submission. Final refit ცალკე გავააქტიურებთ მხოლოდ მაშინ, თუ Prophet-ის baseline ან შემდეგი experiment საკმარისად ღირსეული იქნება.
+ანუ ტექნიკურად ყველა model fit-და, მაგრამ Prophet seasonal naive-ზე უარესი იყო. ეს შედეგი მხოლოდ smoke test იყო: top-300 subset-ის WMAE ვერ შედარდებოდა სხვა მოდელების all-series შედეგს.
 
-## Data split და coverage
+## სრული baseline — 3,331 series
 
-Notebook output:
+შემდეგ baseline გავუშვით ყველა ხელმისაწვდომ `(Store, Dept)` series-ზე. ამ run-ში შეიცვალა მხოლოდ coverage:
 
 ```text
-all_train_rows = 421570
-selected_train_rows = 42900
-top_n_series = 300
-selected_series = 300
-fit_start = 2010-02-05
-fit_end = 2012-01-27
-validation_start = 2012-02-03
-validation_end = 2012-10-26
-test_start = 2012-11-02
-test_end = 2013-07-26
+top_n_series          = 3331
+selected_train_rows   = 421570
+selected_series       = 3331
 ```
 
-ამით baseline მხოლოდ top-300 high-volume Store-Dept series-ს აფასებს. ამიტომ მისი WMAE პირდაპირ all-series DLinear/TFT/XGBoost validation numbers-ს არ ედრება. სწორი შედარება ამავე top-300 subset-ზე seasonal naive-სთანაა.
-
-## Seasonal naive reference
-
-Top-300 subset-ზე 52-week seasonal naive:
+იგივე validation split, WMAE, Prophet configuration და seasonal-naive reference დარჩა, ამიტომ ეს უკვე სწორი all-series comparison-ია.
 
 ```text
-seasonal_naive_wmae = 6026.2907
+fit period             = 2010-02-05 → 2012-01-27
+validation period      = 2012-02-03 → 2012-10-26
+test period            = 2012-11-02 → 2013-07-26
+seasonal naive WMAE    = 1604.2697
+Prophet WMAE           = 1625.4781
+Prophet MAE            = 1558.5649
+difference vs naive    = +21.2084 WMAE
+relative change        = -1.3220%
+elapsed time           = 7.9325 minutes
 ```
 
-ეს reference ძალიან მნიშვნელოვანია. Prophet-ს თუ yearly seasonality კარგად ეხმარება, მას ამ რიცხვზე დაბალი WMAE უნდა მიეღო. თუ ვერ იღებს, ნიშნავს რომ უბრალო “same week last year” lookup უფრო ძლიერია ამ subset-ზე.
-
-## Prophet baseline result
-
-W&B run:
+Fit status:
 
 ```text
-https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/42duaxjv
+fit                            = 3259
+fallback_insufficient_history  = 72
+fallback_fit_error             = 0
 ```
 
-Notebook output:
+72 fallback series შეცდომა არ არის. მათ არ ჰქონდათ baseline-ისთვის საკმარისი არანულოვანი გაყიდვების ისტორია; ამიტომ მათზე უსაფრთხოდ დარჩა seasonal-naive პროგნოზი. დანარჩენი 3,259 series Prophet-მა წარმატებით დააფიტა. სრული run-ის ~8 წუთიანი runtime ასევე აჩვენებს, რომ per-series Prophet Colab-ზე პრაქტიკულად გასაშვებია.
+
+## შედეგის ინტერპრეტაცია
 
 ```text
-validation/wmae = 6455.6646
-validation/mae = 5940.0752
-validation/seasonal_naive_wmae = 6026.2907
-validation/improvement_vs_seasonal_naive_pct = -7.1250
-fit/series_total = 300
-fit/series_fit_ok = 300
-fit/series_fallback = 0
-fit/elapsed_minutes = 0.7338
+lower WMAE is better
+1625.48 > 1604.27
 ```
 
-ანუ Prophet baseline-მა ყველა 300 selected series წარმატებით დააფიტა:
+ამიტომ pure Prophet baseline seasonal naive-ს ვერ აჯობა, თუმცა განსხვავება სრული მონაცემის შემთხვევაში მხოლოდ `1.32%`-ია; top-300 run-ზე განსხვავება `7.13%` იყო. სრული coverage-მა უფრო სანდო სურათი მოგვცა: Prophet pipeline მუშაობს, მაგრამ მისი smooth trend/seasonality decomposition ჯერ ვერ იმეორებს ისეთ მკვეთრ, department-specific yearly pattern-ს, რომელსაც 52-week lookup პირდაპირ იღებს.
+
+ამის მიზეზია Walmart-ის sales signal-ის ბუნება: promotion, holiday spike, rare departments და store-specific level shifts ხშირად არ არის smooth. Prophet თითო series-ს იზოლირებულად სწავლობს, ამიტომ ერთი department-ის ან store-ის pattern სხვა series-ს არ ეხმარება. Seasonal naive კი პირდაპირ იყენებს წინა წლის შესაბამის observation-ს.
+
+## W&B-ზე შენახული ინფორმაცია
+
+ყოველი run W&B-ზე ინახავს:
+
+- სრულ configuration-სა და split summary-ს;
+- `validation/wmae`, `validation/mae`, seasonal-naive WMAE-ს და პროცენტულ განსხვავებას;
+- თითო series-ის fit/fallback status-ს და elapsed time-ს;
+- validation prediction table-ს, series-info table-ს და weekly error table-ს;
+- actual-vs-prediction და weekly-MAE diagnostic plot-ს;
+- artifact-ს შემდეგი ფაილებით:
+  - validation predictions CSV;
+  - series status CSV;
+  - metrics JSON;
+  - config JSON;
+  - diagnostic PNG.
+
+ამიტომ W&B run-დან ჩანს არა მხოლოდ საბოლოო score, არამედ რამდენი model fit-და, fallback რატომ გამოიყენეს და რომელ validation კვირებზე გაიზარდა შეცდომა.
+
+## დასკვნა
+
+Prophet baseline დასრულებულია როგორც სრული, reproducible all-series benchmark:
 
 ```text
-fit = 300
-fallback = 0
+status = working, reproducible baseline; not stronger than seasonal naive
 ```
 
-მაგრამ WMAE seasonal naive-ზე უარესი გამოვიდა:
-
-```text
-Prophet WMAE        = 6455.66
-Seasonal naive WMAE = 6026.29
-difference          = +429.37
-relative change     = -7.13%
-```
-
-რადგან WMAE-ში lower is better, ეს ნიშნავს:
-
-```text
-Prophet baseline did not beat seasonal naive.
-```
-
-## რატომ შეიძლება Prophet baseline იყოს უარესი
-
-ჩემი აზრით, მთავარი მიზეზი ის არის, რომ Walmart Store-Dept series-ები არ არის ჩვეულებრივი smooth business time series. ბევრი department/store-ს აქვს:
-
-- sudden promotions;
-- holiday spikes;
-- sparse/noisy behavior;
-- yearly same-week effects;
-- level shifts;
-- markdown-related changes;
-- department-specific seasonality.
-
-Prophet ცდილობს trend + smooth yearly seasonality + holiday component ააწყოს. მაგრამ Walmart-ში ძალიან ძლიერი signal არის კონკრეტული კვირა ერთი წლით ადრე:
-
-```text
-sales(Store, Dept, same week last year)
-```
-
-Seasonal naive სწორედ ამას აკეთებს. Prophet კი ამ signal-ს smooth seasonality-ად აქცევს და შეიძლება ძალიან აგრესიულად გაასწოროს ისეთი spikes, რომლებიც actually მნიშვნელოვანია WMAE-სთვის.
-
-სხვა მიზეზი: Prophet თითო series-ს დამოუკიდებლად fit-ავს. ის არ სწავლობს cross-series information-ს:
-
-```text
-Store 1 Dept 2-ის pattern
-არ ეხმარება
-Store 10 Dept 2-ს
-```
-
-ამ მხრივ tree-based models ან global neural models უკეთესად იყენებენ shared structure-ს.
-
-## რას ვლოგავთ W&B-ზე
-
-Prophet baseline run W&B-ზე ინახავს:
-
-- config;
-- split summary;
-- `validation/wmae`;
-- `validation/mae`;
-- `validation/seasonal_naive_wmae`;
-- `validation/improvement_vs_seasonal_naive_pct`;
-- fit status counts;
-- elapsed minutes;
-- validation prediction table;
-- series info table;
-- weekly errors table;
-- diagnostic plot;
-- artifact:
-  - `prophet_baseline_validation_predictions.csv`;
-  - `prophet_baseline_series_info.csv`;
-  - `prophet_baseline_metrics.json`;
-  - `prophet_baseline_config.json`;
-  - `prophet_baseline_validation_diagnostics.png`.
-
-ეს საკმარისია baseline story-სთვის: ვხედავთ არა მხოლოდ metric-ს, არამედ რამდენი series fit-და, fallback ხომ არ მოხდა, და როგორ ნაწილდება შეცდომა validation weeks-ზე.
-
-## Baseline conclusion
-
-ამ ეტაპზე Prophet baseline accepted როგორც working baseline, მაგრამ rejected როგორც strong model:
-
-```text
-status = working baseline, not competitive
-```
-
-მნიშვნელოვანი დასკვნები:
-
-- Prophet notebook მუშაობს Colab-ზე;
-- W&B logging სწორად მუშაობს;
-- 300 Prophet model fit სწრაფად დასრულდა (`~0.73` წუთი);
-- fallback არ დაგვჭირდა;
-- მაგრამ Prophet seasonal naive-ზე `7.13%`-ით უარესია;
-- ამიტომ შემდეგი experiment უნდა იყოს focused improvement, არა უბრალოდ all-series run.
-
-ჩემი მოკლე დასკვნა:
-
-```text
-Prophet baseline proves pipeline works,
-but simple 52-week seasonal naive is stronger on top-300 validation.
-```
-
-თუ Prophet-ზე გავაგრძელებთ მუშაობას, შემდეგი ლოგიკური ნაბიჯი იქნება არა blind scaling all `3331` series-ზე, არამედ ერთ-ერთი controlled change:
-
-- multiplicative seasonality;
-- lower/higher changepoint prior;
-- yearly seasonality Fourier order tuning;
-- explicit holiday windows;
-- seasonal naive + Prophet residual correction.
-
-ამ baseline-ის მიხედვით ყველაზე საინტერესო მიმართულება იქნება residual Prophet, რადგან უკვე ვნახეთ რომ pure Prophet ვერ ჯობნის yearly lookup-ს.
+მან დაადასტურა, რომ per-series classical forecasting და W&B logging სწორად მუშაობს. ამავე დროს, `1625.48` WMAE-მ აჩვენა, რომ baseline Prophet-ს მარტო trend/yearly seasonality/holiday component-ებით ჯერ არ შეუძლია Walmart-ის ძლიერი კონკრეტული-კვირა-წინა-წლის signal-ის გადაჭარბება.
