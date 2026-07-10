@@ -703,3 +703,66 @@ private_score = 3058.98280
 ეს score validation WMAE-სგან განსხვავებულია, რადგან Kaggle test period უკვე სხვა დროის მონაკვეთია და იქ submission-ის დაახლოებით `32.87%` seasonal fallback-ით არის შევსებული. მიუხედავად ამისა, შედეგი usable final TFT submission-ად ჩაითვალა: notebook-მა სრულად შექმნა Kaggle-format ფაილი, W&B-ზე დალოგა inference lineage და Kaggle-მაც ფაილი წარმატებით მიიღო.
 
 inference-ის საბოლოო ლოგიკა ასეთია: სადაც v7 TFT-ს სანდოდ შეუძლია პროგნოზი, ვიყენებთ blended residual correction-ს; სადაც TFT coverage არ გვაქვს, ვიყენებთ 52-week seasonal naive-ს. ამიტომ submission ყოველთვის სრულად ივსება, ხოლო W&B-ში ცალკე ჩანს, prediction-ის რა ნაწილი მოდის TFT-დან და რა ნაწილი fallback-იდან.
+
+## Raw-input pipeline და Model Registry-ის გამოსწორება
+
+თავდაპირველი v7 inference checkpoint-ს W&B artifact-იდან იწერდა, მაგრამ შემდეგ notebook თვითონ თავიდან კითხულობდა `train.csv`, `features.csv`, `stores.csv`-ს, ხელახლა ქმნიდა top-2000 selection-ს, `TimeSeriesDataSet`-ს, seasonal fallback-ს და blending logic-ს. ეს reproducible იყო, მაგრამ `DESCRIPTION.md`-ის ყველაზე მკაცრ მოთხოვნას ბოლომდე არ აკმაყოფილებდა:
+
+```text
+Model Registry artifact უნდა იყოს სრული pipeline,
+რომელსაც პირდაპირ raw test.csv-ზე შეუძლია predict.
+```
+
+ამიტომ pipeline packaging training/experiment ეტაპზე გადავიტანეთ. `model_experiment_TFT.ipynb`-ში best v7 checkpoint-იდან შეიქმნა `TFTRawPipeline`, რომელიც ერთ artifact-ში აერთიანებს:
+
+- TFT v7 model weights;
+- fitted `TimeSeriesDataSet` encoders/scalers;
+- სრული `421570`-row training history;
+- `features.csv` და `stores.csv` tables;
+- deterministic top-2000 series selection;
+- 52-week residual target და seasonal-naive fallback;
+- selected blend `alpha = 0.35`;
+- raw input contract: `Store`, `Dept`, `Date`, `IsHoliday`.
+
+pipeline registration flow:
+
+```text
+tft-v7 source checkpoint artifact
+→ TFTRawPipeline
+→ save/reload contract test on raw test.csv
+→ W&B pipeline artifact
+→ Walmart_TFT_Raw_Pipeline:champion
+```
+
+Contract test-ში pipeline-ს სრული raw test set ორჯერ მიეწოდა: ერთხელ memory-ში, ერთხელ save/reload შემდეგ. შედეგები იყო finite, non-negative და იდენტური. Registration metadata:
+
+```text
+pipeline_type        = TFTRawPipeline
+top_n_series         = 2000
+stored_history_rows  = 421570
+blend_alpha          = 0.35
+contract_rows        = 115064
+registry target      = Walmart_TFT_Raw_Pipeline:champion
+```
+
+ახალი `tft_inference.ipynb` უკვე აღარ იწერს checkpoint-ს პირდაპირ და აღარ აწყობს TFT preprocessing-ს notebook-ში. მისი flow არის:
+
+```python
+pipeline = download("wandb-registry-model/Walmart_TFT_Raw_Pipeline:champion")
+predictions = pipeline.predict(raw_test)
+```
+
+Registry-based inference წარმატებით გაეშვა:
+
+```text
+registry artifact     = Walmart_TFT_Raw_Pipeline:champion
+pipeline type         = TFTRawPipeline
+raw test rows         = 115064
+submission rows       = 115064
+prediction min/mean/max = 0.0 / 16458.3956 / 300000.0
+prediction SHA-256    = 96e1018a7573866f81b77c29362bae112aa498fb1b61fedd88aea979d8f7af53
+```
+
+18 top-2000 series inference dataset-ში საკმარისი window-ის გამო ვერ მოხვდა. ეს crash არ არის: მათზეც pipeline-მა seasonal-naive fallback გამოიყენა. საბოლოო output ყოველთვის სრულია.
+
+ერთ ეტაპზე მხოლოდ W&B submission artifact logging გაჩერდა, რადგან იგივე artifact სახელი ადრე სხვა artifact type-ით არსებობდა. Model prediction და Registry pipeline ამ დროს უკვე წარმატებული იყო. საბოლოო inference run-ში artifact type/name consistency გამოსწორდა და submission CSV, manifest და histogram W&B-ზე წარმატებით დაილოგა.
