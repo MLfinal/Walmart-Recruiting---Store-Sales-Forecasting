@@ -47,7 +47,17 @@ SARIMAX Kaggle score: 3525
 - LightGBM-საც იგივე signal-ები სჭირდება: 52-week lag, Store-Dept identity, calendar/holiday features, markdown interaction და historical aggregate encodings.
 - დამატებითი hyperparameter tuning აზრს კარგავს, თუ train/test feature generation ბოლომდე სანდო არ არის.
 
-ამ ახალი ვერსიის მიზანი არ არის ძველი ექსპერიმენტის წაშლა. ძველი result რჩება შედარებისთვის, მაგრამ შემდეგი LightGBM training უნდა გაკეთდეს ამ corrected FE/FS setup-ით.
+ამ ახალი ვერსიის მიზანი არ არის ძველი ექსპერიმენტის წაშლა. ძველი result რჩება შედარებისთვის, მაგრამ final comparison-ში უფრო სანდოდ უნდა ჩაითვალოს corrected FE/FS setup, რადგან ის validation-ს და real Kaggle inference-ს ერთნაირ feature availability-ზე აყენებს.
+
+Corrected FE/FS setup-ის ხელახალი Optuna run-მა validation-ზე ასეთი შედეგი მოგვცა:
+
+```text
+Best trial: 49
+Validation Weighted MAE: 1615.4495
+Validation MAE: 1608.3943
+```
+
+ეს validation-ზე უკეთესია წინა safe `SalesLag52` run-ზე (`1633.3693 -> 1615.4495`) და თითქმის იგივე დონეზეა ძველ unsafe validation score-თან, მაგრამ unsafe lag/rolling leakage-ის გარეშე. ამიტომ ამ შედეგს უფრო სანდოდ ვთვლი, ვიდრე ძველ `1573.4988` validation score-ს.
 
 ## Baseline LightGBM შედეგი
 
@@ -104,11 +114,11 @@ validation L1: 3188.88
 
 ეს არ ჰგავს ძლიერ overfitting-ს. უფრო ჩანს, რომ baseline model under-featured არის: მას არ აქვს seasonality, holiday proximity, lag/rolling და historical aggregate signals, ამიტომ ვერ იჭერს Walmart sales-ის მთავარ structure-ს.
 
-შედარებისთვის, engineered LightGBM Optuna run-ის საუკეთესო შედეგი იყო:
+შედარებისთვის, corrected engineered LightGBM Optuna run-ის საუკეთესო შედეგი იყო:
 
 ```text
-Validation Weighted MAE: 1573.4988
-Validation MAE: 1543.4832
+Validation Weighted MAE: 1615.4495
+Validation MAE: 1608.3943
 ```
 
 პირდაპირი შედარებისას სიფრთხილეა საჭირო, რადგან baseline log-ში მოცემულია LightGBM-ის `validation_l1`, ხოლო final experiment-ის მთავარი metric არის weighted MAE. მაგრამ მაინც ჩანს ძლიერი improvement: engineered model-ის validation error დაახლოებით ორჯერ დაბალია baseline validation L1-ზე.
@@ -184,11 +194,11 @@ weighted_mae = np.sum(np.abs(y_val - y_pred_val) * sample_weights_val) / np.sum(
 
 MAE მაინც სასარგებლოა, რადგან გვაჩვენებს model-ის საშუალო შეცდომას ყველა row-ზე თანაბრად. თუ WMAE და MAE ძალიან განსხვავდება, ეს ნიშნავს, რომ model holiday rows-ზე სხვანაირად იქცევა, ვიდრე ordinary rows-ზე.
 
-ამ notebook-ში საუკეთესო trial-ისთვის დალოგილი იყო:
+ამ corrected notebook run-ში საუკეთესო trial-ისთვის დალოგილი იყო:
 
 ```text
-Validation Weighted MAE: 1573.4988
-Validation MAE: 1543.4832
+Validation Weighted MAE: 1615.4495
+Validation MAE: 1608.3943
 ```
 
 WMAE ოდნავ მაღალია MAE-ზე, რაც ბუნებრივია, რადგან holiday rows უფრო მძიმე წონით ითვლება და ისინი პროგნოზირებისთვის უფრო რთულია.
@@ -373,7 +383,7 @@ Best trial: 46
 history_date = current_date - 52 weeks
 ```
 
-ანუ validation/test row არ იყენებს თავისივე `Weekly_Sales` მნიშვნელობას და არ იყენებს future sales-ს. თუ 52 კვირით უკან შესაბამისი row არ არსებობს, feature ივსება training target median-ით, ხოლო `SalesLag52_available = 0` ინახავს ინფორმაციას, რომ რეალური lag ვერ მოიძებნა.
+ანუ validation/test row არ იყენებს თავისივე `Weekly_Sales` მნიშვნელობას და არ იყენებს future sales-ს. თუ 52 კვირით უკან შესაბამისი row არ არსებობს, `SalesLag52` რჩება `NaN`, ხოლო `SalesLag52_available = 0` ინახავს ინფორმაციას, რომ რეალური lag ვერ მოიძებნა. ეს უკეთ ერგება LightGBM-ს, რადგან LightGBM missing values-ს native-ად ამუშავებს და median-fill-ით ხელოვნურ signal-ს აღარ ვუმატებთ.
 
 რატომ არის ეს უფრო სწორი:
 
@@ -382,7 +392,7 @@ history_date = current_date - 52 weeks
 - validation score ნაკლებად optimistic უნდა იყოს.
 - Kaggle score უფრო ახლოს უნდა მივიდეს validation score-თან.
 
-ამ ცვლილების შემდეგ LightGBM ხელახლა უნდა გაიშვას. ძველი Optuna result (`1573.4988`) არ უნდა წაიშალოს, რადგან comparison-ისთვის საჭიროა, მაგრამ final model selection-ისთვის ის სანდო აღარ არის unsafe lag/rolling feature-ების გამო.
+ამ ცვლილების შემდეგ LightGBM ხელახლა გავუშვით safe setup-ზე. ძველი Optuna result (`1573.4988`) არ უნდა წაიშალოს, რადგან comparison-ისთვის საჭიროა, მაგრამ final model selection-ისთვის ის სანდო აღარ არის unsafe lag/rolling feature-ების გამო.
 
 ## Feature Engineering W&B Run
 
@@ -491,57 +501,69 @@ Optuna ცვლიდა შემდეგ LightGBM hyperparameter-ებს:
 | `reg_lambda` | `0.0`-დან `0.1`-მდე | L2 regularization |
 | `n_estimators` | fixed `100` | boosting round-ების რაოდენობა |
 
-## საუკეთესო Trial
+## საუკეთესო Trial corrected FE/FS run-ში
 
-მოწოდებული Optuna logs-ის მიხედვით საუკეთესო run იყო:
+ეს section ეხება მხოლოდ ახალ corrected FE/FS run-ს. ძველი results ქვემოთ ცალკე რჩება historical comparison-ისთვის და არ იშლება.
+
+მოწოდებული corrected FE/FS Optuna logs-ის მიხედვით საუკეთესო run იყო:
 
 ```text
-Trial: 46
-Validation Weighted MAE: 1573.4988
-Validation MAE: 1543.4832
+Trial: 49
+Validation Weighted MAE: 1615.4495
+Validation MAE: 1608.3943
 ```
 
 საუკეთესო hyperparameter-ები:
 
 ```python
 {
-    "learning_rate": 0.08117866851143801,
-    "num_leaves": 196,
-    "max_depth": 19,
-    "min_child_samples": 98,
-    "subsample": 0.9817092354210323,
-    "colsample_bytree": 0.8206871721053576,
-    "reg_alpha": 0.00031014058676548666,
-    "reg_lambda": 0.01501347092737337,
+    "learning_rate": 0.08865537207323315,
+    "num_leaves": 253,
+    "max_depth": 11,
+    "min_child_samples": 83,
+    "subsample": 0.8136830368318766,
+    "colsample_bytree": 0.8249071686333185,
+    "reg_alpha": 0.005530932818058136,
+    "reg_lambda": 0.0395233307315138,
 }
 ```
 
 ამ trial-მა საუკეთესო შედეგი აჩვენა, რადგან ჰქონდა:
 
 - შედარებით მაღალი learning rate;
-- დიდი `num_leaves`;
-- ღრმა trees;
-- მაღალი row sampling;
+- ძალიან დიდი `num_leaves`;
+- საშუალო სიღრმის trees;
+- ზომიერი row sampling;
 - ზომიერი feature sampling;
-- ძალიან მსუბუქი regularization.
+- მსუბუქი, მაგრამ ნულზე მაღალი regularization.
 
-ეს combination მოდელს აძლევს საშუალებას დაიჭიროს რთული store-department-seasonality interactions, მაგრამ sampling მაინც ამცირებს overfitting-ის რისკს.
+ეს combination მოდელს აძლევს საშუალებას დაიჭიროს რთული store-department-seasonality interactions, მაგრამ `max_depth = 11`, `min_child_samples = 83`, `subsample = 0.8137` და regularization ერთად ამცირებს overfitting-ის რისკს. ეს განსაკუთრებით მნიშვნელოვანია corrected setup-ში, სადაც unsafe short lag/rolling feature-ები აღარ გვაქვს და model უფრო მეტად ეყრდნობა safe yearly lag-ს, historical aggregate-ებს და interaction feature-ებს.
 
-## Trial-ების შედარება
+### ძველ შედეგებთან მოკლე შედარება
+
+| ეტაპი | Best trial | Validation WMAE | Kaggle score | როგორ ვკითხულობ |
+| --- | ---: | ---: | ---: | --- |
+| ძველი unsafe lag/rolling FE | 46 | `1573.4988` | დაახლოებით `6200` | validation leakage-ის გამო ზედმეტად optimistic |
+| პირველი safe `SalesLag52` FE | 42 | `1633.3693` | დაახლოებით `3600` | Kaggle-ზე ბევრად უკეთესი, რადგან feature availability უფრო რეალურია |
+| corrected XGBoost-aligned FE | 49 | `1615.4495` | დაახლოებით `3490` | validation და Kaggle ორივე გაუმჯობესდა წინა safe setup-თან შედარებით |
+
+ამიტომ ახალი result ძველ unsafe score-ს პირდაპირ არ უნდა შევადაროთ როგორც “worse/better model”, რადგან ძველი `1573.4988` validation leakage-ით იყო გაძლიერებული. სწორი შედარება არის safe setup-თან: `1633.3693 -> 1615.4495`, რაც გაუმჯობესებაა leakage-ის დაბრუნების გარეშე.
+
+## Trial-ების შედარება corrected FE/FS run-ში
 
 Representative trial results:
 
 | Trial | Weighted MAE | ძირითადი pattern |
 | --- | ---: | --- |
-| 0 | 2861.46 | დაბალი learning rate და ძალიან დიდი tree capacity; 100 round-ში ბოლომდე ვერ ისწავლა |
-| 1 | 1988.89 | უკეთესი learning rate და shallow depth; დიდი improvement |
-| 4 | 5673.74 | ძალიან დაბალი learning rate; fixed 100 trees-ისთვის ძალიან ნელია |
-| 10 | 1713.95 | მაღალი learning rate და პატარა `num_leaves`; ძლიერი improvement |
-| 16 | 1636.31 | learning rate, leaves, depth და sampling-ის კარგი balance |
-| 33 | 1603.35 | ძლიერი high-learning-rate configuration |
-| 39 | 1573.57 | trial 46-მდე საუკეთესო; მაღალი learning rate და large trees |
-| 46 | 1573.50 | საუკეთესო overall |
-| 49 | 3695.29 | დაბალი learning rate; underfit |
+| 0 | 2785.06 | დაბალი learning rate და 100 round-ში ნელი learning |
+| 1 | 2014.69 | shallow depth-მა და უკეთესმა learning rate-მა დიდი improvement მისცა |
+| 10 | 1841.82 | მაღალი learning rate და პატარა `num_leaves`; ძლიერი early improvement |
+| 18 | 1681.48 | balanced learning rate/leaves; first strong corrected setup |
+| 25 | 1648.08 | მაღალი learning rate და საშუალო tree capacity |
+| 31 | 1626.35 | მაღალი learning rate, 187 leaves, shallow depth; თითქმის საუკეთესო |
+| 43 | 1624.28 | `num_leaves = 210`, `max_depth = 10`; კარგი balance |
+| 45 | 1619.26 | უფრო დიდი leaves და `max_depth = 12`; trial 49-მდე საუკეთესო |
+| 49 | 1615.45 | საუკეთესო overall; დიდი leaves + medium depth + moderate sampling |
 
 ## Hyperparameter-ების ქცევა
 
@@ -553,18 +575,18 @@ Representative trial results:
 
 მაგალითები:
 
-- Trial 4: `learning_rate = 0.0116`, WMAE `5673.74`
-- Trial 9: `learning_rate = 0.0101`, WMAE `6329.98`
-- Trial 49: `learning_rate = 0.0184`, WMAE `3695.29`
+- Trial 4: `learning_rate = 0.0116`, WMAE `5603.77`
+- Trial 9: `learning_rate = 0.0101`, WMAE `6260.35`
+- Trial 47: `learning_rate = 0.0163`, WMAE `4106.75`
 
 ეს models ჯერ კიდევ სწავლობდნენ, მაგრამ 100 boosting round საკმარისი არ იყო.
 
 მაღალი learning rate-ები, დაახლოებით `0.06`-დან `0.09`-მდე, ბევრად უკეთესი იყო:
 
 - Trial 16: `0.0583`, WMAE `1636.31`
-- Trial 33: `0.0714`, WMAE `1603.35`
-- Trial 39: `0.0881`, WMAE `1573.57`
-- Trial 46: `0.0812`, WMAE `1573.50`
+- Trial 31: `0.0994`, WMAE `1626.35`
+- Trial 45: `0.0878`, WMAE `1619.26`
+- Trial 49: `0.0887`, WMAE `1615.45`
 
 დასკვნა:
 
@@ -574,9 +596,10 @@ Representative trial results:
 
 საუკეთესო trial-ები ძირითადად იყენებდნენ ბევრ leaves-ს:
 
-- Trial 39: `num_leaves = 210`
-- Trial 46: `num_leaves = 196`
-- Trial 48: `num_leaves = 224`
+- Trial 31: `num_leaves = 187`
+- Trial 43: `num_leaves = 210`
+- Trial 45: `num_leaves = 237`
+- Trial 49: `num_leaves = 253`
 
 ეს ნიშნავს, რომ მოდელს სჭირდება complex tree structure, რადგან Walmart sales დამოკიდებულია store, department, week, holiday, markdown და historical sales interaction-ებზე.
 
@@ -586,38 +609,40 @@ Representative trial results:
 
 საუკეთესო trial-ებში tree depth მაღალი იყო:
 
-- Trial 39: `max_depth = 20`
-- Trial 46: `max_depth = 19`
-- Trial 48: `max_depth = 18`
+- Trial 31: `max_depth = 10`
+- Trial 43: `max_depth = 10`
+- Trial 45: `max_depth = 12`
+- Trial 49: `max_depth = 11`
 
-ეს აჩვენებს, რომ deeper trees ეხმარებოდა nonlinear interaction-ების დაჭერაში.
+ეს აჩვენებს, რომ corrected setup-ში უკიდურესად ღრმა trees აღარ იყო საჭირო. ძველ unsafe feature set-ში საუკეთესო trial-ები `max_depth = 18-20` არეალში იყო, მაგრამ ახალ setup-ში `max_depth = 10-12` უკეთესად generalize-და. ჩემი ინტერპრეტაციით, XGBoost-ის მსგავსად დალაგებულმა interaction/aggregate feature-ებმა model-ს ნაკლები სიღრმითაც მისცა საჭირო signal.
 
 ### Min Child Samples
 
 საუკეთესო trial-ს ჰქონდა:
 
 ```python
-min_child_samples = 98
+min_child_samples = 83
 ```
 
-ეს საკმაოდ მაღალი მნიშვნელობაა. ანუ deep tree და ბევრი leaves მიუხედავად, model პატარა leaf-ებს ერიდებოდა. ეს regularization-ს ქმნის და overfitting-ს ამცირებს.
+ეს საკმაოდ მაღალი მნიშვნელობაა. ანუ ბევრი leaves მიუხედავად, model პატარა leaf-ებს ერიდებოდა. ეს regularization-ს ქმნის და overfitting-ს ამცირებს.
 
 ### Subsample
 
 საუკეთესო trial-ებში row sampling მაღალი იყო:
 
-- Trial 39: `subsample = 0.9727`
-- Trial 46: `subsample = 0.9817`
-- Trial 48: `subsample = 0.9849`
+- Trial 31: `subsample = 0.9036`
+- Trial 43: `subsample = 0.8680`
+- Trial 45: `subsample = 0.8649`
+- Trial 49: `subsample = 0.8137`
 
-ეს აჩვენებს, რომ model-ს dataset-ის დიდი ნაწილი სჭირდებოდა stable historical patterns-ის დასაჭერად.
+ეს აჩვენებს, რომ corrected setup-ში ზომიერი row sampling უკეთესად მუშაობდა. ძველ run-ში საუკეთესო trial-ები თითქმის მთელ dataset-ს იყენებდნენ, მაგრამ ახალ run-ში `0.81-0.90` sampling უკეთეს regularization-ს ქმნის.
 
 ### Column Sampling
 
 საუკეთესო trial-ს ჰქონდა:
 
 ```python
-colsample_bytree = 0.8207
+colsample_bytree = 0.8249
 ```
 
 სხვა ძლიერი trial-ები იყენებდნენ დაახლოებით `0.80`-დან `0.95`-მდე მნიშვნელობებს.
@@ -629,11 +654,11 @@ colsample_bytree = 0.8207
 საუკეთესო trial-ში regularization ძალიან სუსტი იყო:
 
 ```python
-reg_alpha = 0.00031
-reg_lambda = 0.01501
+reg_alpha = 0.00553
+reg_lambda = 0.03952
 ```
 
-ეს ნიშნავს, რომ selected features და `min_child_samples` უკვე ქმნიდა საკმარის regularization-ს. ძლიერი L1/L2 penalty საუკეთესო შედეგისთვის საჭირო არ აღმოჩნდა.
+ეს ნიშნავს, რომ ძლიერი L1/L2 penalty საჭირო არ იყო, მაგრამ ნულზე მაღალი regularization დაეხმარა corrected feature set-ს. `reg_lambda` ძველ best run-ზე უფრო მაღალია, რაც logical არის, რადგან model ახლა უფრო safe, მაგრამ შედარებით ნაკლებად direct target-derived feature-ებზე სწავლობს.
 
 ## Training Curves
 
@@ -755,9 +780,79 @@ Kaggle-ზე კი ახალი feature engineering მნიშვნე�
 - final comparison-ში ახალი Safe `SalesLag52` model უნდა ჩაითვალოს უფრო სანდოდ, რადგან Kaggle score ბევრად გაუმჯობესდა.
 - შემდეგი გაუმჯობესება უნდა იყოს validation procedure-ის კიდევ უფრო დაახლოება Kaggle horizon-თან და possibly full-data retrain final submission-მდე.
 
+## Corrected XGBoost-aligned LightGBM retrain
+
+პირველი safe `SalesLag52` run-ის შემდეგ LightGBM feature engineering კიდევ ერთხელ მივუახლოვეთ XGBoost notebook-ს. მთავარი ცვლილებები იყო:
+
+- `SalesLag52` missing value აღარ ივსება median-ით და რჩება `NaN`;
+- LightGBM-ს ვაძლევთ native missing value handling-ის გამოყენების საშუალებას;
+- `Store_Dept` და `Type_Dept` interaction feature-ები numeric encoding-ზე გადავიდა;
+- historical aggregate transformer-ში დაემატა count feature-ები;
+- registered pipeline-ს შეუძლია raw `test.csv` მიიღოს და stored `features.csv`/`stores.csv` თვითონ merge-ოს.
+
+ამ corrected setup-ის Optuna შედეგი:
+
+```text
+Number of finished trials: 50
+Best trial: 49
+Validation Weighted MAE: 1615.4495
+Validation MAE: 1608.3943
+```
+
+საუკეთესო hyperparameter-ები:
+
+```python
+{
+    "learning_rate": 0.08865537207323315,
+    "num_leaves": 253,
+    "max_depth": 11,
+    "min_child_samples": 83,
+    "subsample": 0.8136830368318766,
+    "colsample_bytree": 0.8249071686333185,
+    "reg_alpha": 0.005530932818058136,
+    "reg_lambda": 0.0395233307315138,
+}
+```
+
+Best trial-ის final training log:
+
+```text
+[25]  train's l1: 3310.53  validation's l1: 2895.50
+[50]  train's l1: 1983.45  validation's l1: 1706.42
+[75]  train's l1: 1744.14  validation's l1: 1636.23
+[100] train's l1: 1641.02  validation's l1: 1625.82
+```
+
+### რას ნიშნავს ეს შედეგი
+
+ეს result უკეთესია წინა safe LightGBM run-ზე:
+
+```text
+Safe SalesLag52 WMAE: 1633.3693
+Corrected XGBoost-aligned WMAE: 1615.4495
+Improvement: 17.9198 WMAE
+```
+
+ეს გაუმჯობესება პატარაა, მაგრამ მნიშვნელოვანი მიმართულებაა. მთავარი მიზეზი ის არის, რომ model-ს დავუტოვეთ test-safe feature availability, მაგრამ feature representation გავაუმჯობესეთ:
+
+- median-filled `SalesLag52`-ის ნაცვლად `NaN` უფრო სწორად გამოხატავს missing lag-ს;
+- count aggregate feature-ები model-ს ეუბნება, რამდენად სანდოა historical mean/median/std;
+- numeric interaction-ები tree model-ისთვის უფრო ბუნებრივი split-ებია, ვიდრე string category interaction;
+- raw-input registry pipeline ამცირებს train/test preprocessing mismatch-ის რისკს.
+
+შედარება სამ LightGBM ეტაპს შორის:
+
+| ექსპერიმენტი | Validation WMAE | Kaggle score | შეფასება |
+| --- | ---: | ---: | --- |
+| ძველი unsafe lag/rolling FE | `1573.4988` | დაახლოებით `6200` | validation leakage; test-ზე unreliable |
+| პირველი safe `SalesLag52` FE | `1633.3693` | დაახლოებით `3600` | Kaggle-safe, მაგრამ ჯერ კიდევ არასაკმარისად ძლიერი |
+| corrected XGBoost-aligned FE | `1615.4495` | დაახლოებით `3490` | საუკეთესო reliable LightGBM result ამ ეტაპზე |
+
+ჩემი შეფასებით, ეს ბოლო result უკვე უკეთესია, რადგან ძველი `1573.4988` score-თან შედარებით leakage არ აქვს, ხოლო წინა safe run-თან შედარებით representation უკეთესია. Kaggle score-იც გაუმჯობესდა `3600`-დან `3490`-მდე, რაც ადასტურებს, რომ XGBoost-ის მსგავს feature representation-ს LightGBM-შიც ჰქონდა რეალური სარგებელი.
+
 ## შენიშვნები და რისკები
 
-მიმდინარე safe feature engineering-მა Kaggle score გააუმჯობესა, მაგრამ `3600` ჯერ კიდევ ჩამორჩება XGBoost-ის დაახლოებით `2800` score-ს. ეს ნიშნავს, რომ LightGBM pipeline უკვე უფრო სწორია, მაგრამ ჯერ კიდევ შეიძლება გაუმჯობესება.
+მიმდინარე corrected feature engineering-მა validation გააუმჯობესა `1633.3693`-დან `1615.4495`-მდე. Kaggle-ზეც score გაუმჯობესდა `3600`-დან `3490`-მდე. ეს სწორ მიმართულებას აჩვენებს, მაგრამ ჯერ კიდევ ჩამორჩება XGBoost-ის დაახლოებით `2806` score-ს.
 
 მთავარი დარჩენილი რისკები:
 
@@ -768,17 +863,18 @@ Kaggle-ზე კი ახალი feature engineering მნიშვნე�
 
 ## Kaggle submission ანალიზი
 
-LightGBM-ის საბოლოო Kaggle submission-ზე მივიღე:
+LightGBM-ის წინა safe `SalesLag52` Kaggle submission-ზე მივიღე:
 
 ```text
 Kaggle score: 3600
 ```
 
-ეს შედეგი ძველ LightGBM submission-ზე უკეთესია, მაგრამ XGBoost-ზე უარესია:
+ეს შედეგი ძველ LightGBM submission-ზე უკეთესი იყო, მაგრამ XGBoost-ზე უარესი:
 
 ```text
 ძველი LightGBM unsafe lag/rolling setup ≈ 6200
 ახალი LightGBM safe SalesLag52 setup ≈ 3600
+corrected XGBoost-aligned LightGBM setup ≈ 3490
 XGBoost ≈ 2806
 ```
 
@@ -791,11 +887,11 @@ XGBoost ≈ 2806
 - დავტოვეთ მხოლოდ safe `SalesLag52`;
 - inference pipeline-ში `SalesLag52` stored observed history-დან იქმნება.
 
-ამის შემდეგ validation ოდნავ გაუარესდა:
+ამის შემდეგ validation ძველ unsafe score-თან შედარებით გაუარესდა:
 
 ```text
 Old validation WMAE = 1573.4988
-New validation WMAE = 1633.3693
+Safe validation WMAE = 1633.3693
 ```
 
 მაგრამ Kaggle მნიშვნელოვნად გაუმჯობესდა:
@@ -807,6 +903,22 @@ New Kaggle ≈ 3600
 
 ეს ჩემთვის კარგი ნიშანია: validation score ნაკლებად ლამაზია, მაგრამ უფრო honest გახდა. ანუ model ახლა იმ feature-ებს იყენებს, რომლებიც test set-ზეც რეალურად ხელმისაწვდომია.
 
+შემდეგ corrected XGBoost-aligned FE/FS run-მა validation კიდევ გააუმჯობესა:
+
+```text
+Safe validation WMAE = 1633.3693
+Corrected validation WMAE = 1615.4495
+```
+
+ამ უკანასკნელისთვის Kaggle score მივიღეთ:
+
+```text
+Safe Kaggle score = 3600
+Corrected Kaggle score = 3490
+```
+
+ანუ corrected feature engineering-მა Kaggle-ზეც გააუმჯობესა შედეგი. improvement არ არის ძალიან დიდი, მაგრამ მიმართულება სწორია: validation WMAE გაუმჯობესდა `17.92`-ით, ხოლო Kaggle score დაახლოებით `110` point-ით. ეს ნიშნავს, რომ `SalesLag52`-ის `NaN` handling, numeric interaction-ები, aggregate count feature-ები და raw-input registry pipeline რეალურად დაეხმარა generalization-ს.
+
 რატომ ვერ აჯობა XGBoost-ს:
 
 - XGBoost-ის raw-input pipeline თავიდანვე უფრო self-contained იყო.
@@ -817,4 +929,4 @@ New Kaggle ≈ 3600
 
 საბოლოო დასკვნა:
 
-LightGBM ძალიან ძლიერი validation model იყო, მაგრამ Kaggle-ზე XGBoost უკეთესად generalized. ამ ეტაპზე LightGBM-ს final champion-ად არ ავირჩევდი, თუმცა safe `SalesLag52` ცვლილებამ აშკარად სწორი მიმართულებით წაიყვანა pipeline. შემდეგი ნაბიჯი იქნებოდა `n_estimators`/early stopping tuning და validation simulation-ის კიდევ უფრო დაახლოება Kaggle inference-სთან.
+LightGBM ძალიან ძლიერი validation model იყო და corrected setup-მა Kaggle-ზეც გააუმჯობესა შედეგი `3600 -> 3490`. მიუხედავად ამისა, XGBoost-ის `2806` score ჯერ კიდევ მნიშვნელოვნად უკეთესია. ამიტომ ამ ეტაპზე LightGBM-ში მთავარი დასკვნა არის: feature engineering-ის გასწორებამ real improvement მოგვცა, მაგრამ model/pipeline ჯერ კიდევ ვერ generalize-დება ისე კარგად, როგორც XGBoost. შემდეგი გაუმჯობესება უნდა იყოს validation split-ის უფრო Kaggle-like გაკეთება, `n_estimators`/early stopping tuning და feature selection-ის გადამოწმება, რადგან შესაძლოა LightGBM-ს test generalization-ისთვის ზოგი feature ზედმეტად aggressive selection-მა დააკლო.
