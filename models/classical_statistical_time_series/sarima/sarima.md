@@ -376,10 +376,17 @@ row-level allocation
 
 ## SARIMAX ექსპერიმენტის ანალიზი
 
-SARIMA order search-ის შემდეგ ცალკე `model_experiment_SARIMAX.ipynb` notebook-ში გავტესტეთ SARIMAX, ანუ SARIMA external regressors-ით. აქ SARIMA არ გამოგვიყენებია. Seasonal order გამორთულია:
+SARIMA order search-ის შემდეგ ცალკე `model_experiment_SARIMAX.ipynb` notebook-ში გავტესტეთ **model_sarimax**, ანუ SARIMA/SARIMAX-style aggregate model external regressors-ით. ეს უკვე `model_sarima`-ს გაგრძელებაა, სადაც pure historical signal-ს დავუმატეთ `features.csv`-დან მიღებული exogenous variables. Seasonal order ამ ეტაპზე გამორთულია:
 
 ```python
 seasonal_order = (0, 0, 0, 0)
+```
+
+W&B run:
+
+```text
+Run name: SARIMAX_Order_Exog_Allocation_Experiment
+Run URL: https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/runs/jpkuuy0u
 ```
 
 SARIMAX-ის იდეა იყო, რომ aggregate weekly sales-ს გარდა model-ს ენახა weekly-level external signals:
@@ -392,9 +399,9 @@ SARIMAX-ის იდეა იყო, რომ aggregate weekly sales-ს გ�
 - markdown totals;
 - calendar week/month signals.
 
-### SARIMAX-ის საუკეთესო შედეგი
+### model_sarimax-ის საუკეთესო შედეგი
 
-SARIMAX experiment-ის საუკეთესო შედეგი იყო:
+`model_sarimax` experiment-ის საუკეთესო შედეგი იყო:
 
 ```text
 best_order: (0, 0, 0)
@@ -406,7 +413,7 @@ Validation RMSE: 5135.390683
 Improvement vs seasonal naive: -42.413569%
 ```
 
-ეს შედეგი ბევრად უარესია როგორც seasonal naive-ზე, ისე SARIMA baseline-ზე და tuned SARIMA-ზე.
+ეს შედეგი ბევრად უარესია როგორც seasonal naive-ზე, ისე SARIMA baseline-ზე და `model_sarima`-ზე.
 
 შედარება:
 
@@ -414,10 +421,10 @@ Improvement vs seasonal naive: -42.413569%
 | --- | --- | ---: | ---: |
 | Seasonal naive | 52-week row-level lag | `1800.17359` | reference |
 | Baseline SARIMA | `(1,1,1)` + `last_year_share` | `1856.86053` | `-3.14897%` |
-| Tuned SARIMA | `(1,0,2)` + `last_year_share` | `1831.61762` | `-1.74672%` |
-| SARIMAX | `(0,0,0)` + exog + `last_year_share` | `2563.69145` | `-42.41357%` |
+| model_sarima | `(1,0,2)` + `last_year_share` | `1831.61762` | `-1.74672%` |
+| model_sarimax | `(0,0,0)` + exog + `last_year_share` | `2563.69145` | `-42.41357%` |
 
-ამ ცხრილიდან ჩანს, რომ SARIMAX ამ ფორმით არ გაუმჯობესდა. პირიქით, external regressors-მა model-ის performance მნიშვნელოვნად გააუარესა.
+ამ ცხრილიდან ჩანს, რომ `model_sarimax` validation-ზე არ გაუმჯობესდა. პირიქით, external regressors-მა model-ის performance მნიშვნელოვნად გააუარესა.
 
 ### რატომ გახდა SARIMAX ცუდი
 
@@ -473,11 +480,11 @@ last_year_share
 
 ### SARIMAX vs SARIMA
 
-SARIMAX-ის დამატებამ არ გააუმჯობესა SARIMA:
+SARIMAX-ის დამატებამ არ გააუმჯობესა `model_sarima`:
 
 ```text
-Tuned SARIMA WMAE:  1831.62
-Best SARIMAX WMAE: 2563.69
+model_sarima WMAE:  1831.62
+model_sarimax WMAE: 2563.69
 ```
 
 გაუარესება:
@@ -486,7 +493,9 @@ Best SARIMAX WMAE: 2563.69
 2563.69 - 1831.62 = 732.07 WMAE
 ```
 
-ეს ძალიან დიდი სხვაობაა. ამიტომ ამ კონკრეტული implementation-ით SARIMAX არ უნდა ჩაითვალოს improvement-ად.
+ეს ძალიან დიდი სხვაობაა. ამიტომ validation logic-ით ამ კონკრეტული implementation-ით `model_sarimax` არ უნდა ჩაითვალოს improvement-ად `model_sarima`-ზე.
+
+ამ შედეგიდან ჩანს, რომ გაუარესება training loop-ის გამო არ მომხდარა. მთავარი განსხვავება `model_sarima`-სა და `model_sarimax`-ს შორის არის **feature engineering / exogenous variables**. იგივე allocation logic დარჩა, იგივე aggregate forecast structure დარჩა, მაგრამ SARIMAX-მა aggregate weekly features დაამატა. Validation-ზე ეს features უფრო noise აღმოჩნდა, ვიდრე useful signal.
 
 ### რა ვისწავლეთ SARIMAX-იდან
 
@@ -507,6 +516,48 @@ SARIMAX-ში კი ეს ყველაფერი დაიკუმშ�
 - tuned pure SARIMA უკეთესია SARIMAX-ზე;
 - seasonal naive მაინც საუკეთესო classical baseline რჩება;
 - SARIMAX-ის ამ ვერსიას final candidate-ად არ ავირჩევდი.
+
+### ARIMA vs SARIMA და ARIMAX vs SARIMAX
+
+აქ მნიშვნელოვანი შედარებაა, რადგან SARIMA folder-ში გაკეთებული პირველი მოდელები ჯერ seasonal order-ს რეალურად არ იყენებენ. `statsmodels`-ში SARIMA/SARIMAX implementation ტექნიკურად `SARIMAX` class-ით ეშვება, მაგრამ თუ `seasonal_order=(0,0,0,0)` ან seasonal component არ არის ჩართული, მოდელი პრაქტიკულად ARIMA/ARIMAX-like behavior-ს იმეორებს.
+
+Validation შედეგები:
+
+| Pair | Model | Setup | Validation WMAE |
+| --- | --- | --- | ---: |
+| ARIMA vs SARIMA | ARIMA baseline | `(1,1,1)` + `last_year_share` | `1856.86053` |
+| ARIMA vs SARIMA | SARIMA baseline | `(1,1,1)` + `last_year_share`, seasonal disabled | `1856.86053` |
+| ARIMA vs SARIMA | tuned ARIMA | `(1,0,2)` + `last_year_share` | `1829.87999` |
+| ARIMA vs SARIMA | model_sarima | `(1,0,2)` + `last_year_share`, seasonal disabled | `1831.61762` |
+| ARIMAX vs SARIMAX | ARIMAX | `(0,0,0)` + exog + `last_year_share` | `2563.69145` |
+| ARIMAX vs SARIMAX | model_sarimax | `(0,0,0)` + exog + `last_year_share`, seasonal disabled | `2563.69145` |
+
+ამ შედარებიდან ჩანს:
+
+1. **ARIMA baseline და SARIMA baseline ერთნაირია.**  
+   ორივემ `1856.86053` WMAE მიიღო, რადგან SARIMA baseline-ში seasonal component ჯერ ჩართული არ არის. ამიტომ ეს ჯერ არ არის ნამდვილი seasonal improvement, არამედ იგივე aggregate ARIMA logic SARIMA folder-ში.
+
+2. **tuned ARIMA ოდნავ უკეთესია model_sarima-ზე.**  
+   ARIMA order search-მა მიიღო `1829.87999`, ხოლო model_sarima-მ მიიღო `1831.61762`. სხვაობა პატარაა:
+
+```text
+1831.61762 - 1829.87999 = 1.73763 WMAE
+```
+
+   ეს მცირე სხვაობა დიდი architecture difference-ს არ აჩვენებს. უფრო სავარაუდოა, რომ განსხვავება მოდის implementation/detail-level ცვლილებებიდან, მაგალითად `SARIMAX` class-ით fitting, numerical optimization, ან output handling. ორივე მოდელი ჯერ non-seasonal aggregate model-ია.
+
+3. **ARIMAX და SARIMAX validation-ზე ფაქტობრივად ერთნაირია.**  
+   ორივე საუკეთესო result არის `(0,0,0)` + exogenous features + `last_year_share`, WMAE `2563.69145`. ეს ნიშნავს, რომ SARIMAX-ის დამატება აქ ჯერ არ ქმნის ახალ seasonal model-ს. ის იგივე ARIMAX-style aggregate exog experiment-ია SARIMA folder-ში.
+
+4. **SARIMA/SARIMAX ჯერ არ სჯობს ARIMA/ARIMAX-ს, რადგან seasonal ნაწილი არ არის ჩართული.**  
+   SARIMA-ს მთავარი იდეა seasonal structure-ის დაჭერაა, მაგრამ ამ ეტაპზე seasonal order disabled არის. ამიტომ შედეგი ვერ იქნება მნიშვნელოვნად უკეთესი, სანამ არ დავამატებთ seasonal order-ს, მაგალითად yearly retail pattern-ზე მორგებულ seasonal component-ს.
+
+ჩემი დასკვნა ამ შედარებიდან:
+
+- SARIMA baseline = ARIMA baseline, რადგან seasonal part არ არის გამოყენებული;
+- model_sarima თითქმის იგივეა, რაც tuned ARIMA, ოდნავ უარესი `1.74` WMAE-ით;
+- SARIMAX = ARIMAX validation-ზე, რადგან ორივე aggregate exog model-ად მუშაობს;
+- ნამდვილი SARIMA improvement უნდა ველოდოთ მხოლოდ seasonal order-ის დამატების შემდეგ.
 
 ### Kaggle submission შედეგები: SARIMA vs SARIMAX
 
