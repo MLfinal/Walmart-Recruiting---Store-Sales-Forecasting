@@ -1095,6 +1095,22 @@ best_epoch = 15
 
 `DESCRIPTION.md`-ის მოთხოვნაა, რომ საუკეთესო model იყოს pipeline-ად შენახული და მან პირდაპირ დაუმუშავებელი `test.csv` მიიღოს. ამიტომ pipeline იქმნება **training/experiment notebook-ის ბოლოს**, არა inference notebook-ში.
 
+### რა გვქონდა თავიდან და რა იყო გამოტოვებული
+
+თავდაპირველ DLinear flow-ში საუკეთესო manual-v1 checkpoint W&B artifact-ად ნამდვილად არსებობდა და inference reproducible იყო, მაგრამ სრული pipeline არ იყო:
+
+```text
+old flow:
+Registry/model artifact → checkpoint
+inference notebook → read train.csv + test.csv
+                   → rebuild sales panel/normalization/model
+                   → prediction
+```
+
+ეს ტექნიკურად მუშაობდა და Kaggle submission-საც ქმნიდა, მაგრამ `DESCRIPTION.md`-ის მკაცრ raw-input requirement-ს ბოლომდე არ აკმაყოფილებდა. Registry-ში იყო model checkpoint, არა ობიექტი, რომელსაც პირდაპირ `predict(raw_test)` შეეძლო. Training history, Store-Dept mapping, normalization და fallback logic inference notebook-ში ხელახლა იყო დაწერილი. დამატებით, model registry link ძველ flow-ში inference-ის ბოლოს ხდებოდა, მაშინ როცა სწორი ადგილი best model-ის არჩევის/training ეტაპია.
+
+ეს იყო pipeline packaging-ის გამოტოვება და არა model training-ის ან WMAE-ის შეცდომა.
+
 `model_experiment_DLinear.ipynb`-ს დაემატა package-only section. ის აღარ train-ავს model-ს; უკვე დალოგილ manual-v1 checkpoint-ს იწერს W&B-დან და მასთან ერთად ერთ artifact-ში აერთიანებს:
 
 - DLinear weights და architecture parameters;
@@ -1131,6 +1147,41 @@ pipeline.predict(raw_test)
 ```
 
 ეს ამოწმებს, რომ pipeline რეალურად self-contained არის და მხოლოდ notebook-ის memory-ზე არ არის დამოკიდებული.
+
+### გამოსწორებული run და მიმდინარე მდგომარეობა
+
+არსებული best model ხელახლა არ დაგვიტრენინგებია. `package_selected_raw_pipeline=True` რეჟიმმა უკვე დალოგილი manual-v1 source artifact ჩამოწერა, მისგან შექმნა pipeline და W&B Registry-ში დაალინკა:
+
+```text
+Walmart_DLinear_Raw_Pipeline:champion
+```
+
+Package run-ის manifest-მა დაადასტურა:
+
+```text
+pipeline type        = DLinearRawPipeline
+stored series        = 3331
+stored history rows  = 421570
+input weeks          = 52
+prediction weeks     = 39
+moving-average kernel= 25
+raw columns          = Store, Dept, Date, IsHoliday
+```
+
+Source artifact-ის სახელში ძველი `104w` label დარჩენილია, მაგრამ checkpoint tensor shape-ით შემოწმებულმა pipeline-მა დაადგინა, რომ რეალური saved architecture `52` input კვირას იყენებს. ამიტომ ძველი სახელის გამო model არ გატეხილა და pipeline რეალურ weight shape-ს მიჰყვება.
+
+ამის შემდეგ უკვე ახალი inference run შესრულდა უშუალოდ Registry pipeline-ით:
+
+```text
+Registry artifact    = Walmart_DLinear_Raw_Pipeline:champion
+pipeline input       = raw test.csv
+test rows            = 115064
+submission rows      = 115064
+prediction min/mean/max = 0.0 / 15761.6282 / 193871.3125
+prediction SHA-256   = dfa09de2ef105a90f9bd1077a6b4bfd396c3444745cbffae50f4038e553f7d3a
+```
+
+ამ run-ში Kaggle upload გამორთული იყო; შეიქმნა და W&B-ზე დაილოგა submission CSV, manifest და prediction histogram. ყველაზე მნიშვნელოვანი კი ისაა, რომ inference notebook აღარ კითხულობს `train.csv`-ს და არ აწყობს DLinear-ს ხელახლა: Registry pipeline თვითონ ატარებს ამ პასუხისმგებლობას.
 
 Inference notebook-ის ახალი flow:
 
