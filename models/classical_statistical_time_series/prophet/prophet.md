@@ -451,6 +451,36 @@ predictions = pipeline.predict(raw_test)
 
 ის აღარ კითხულობს `train.csv`, აღარ refit-ავს Prophet-ს და აღარ იმეორებს event/fallback preprocessing-ს notebook-ში. Submission, manifest, prediction histogram და submission artifact უკვე inference run-ზე ლოგდება.
 
+## საბოლოო inference და Kaggle submission
+
+`prophet_inference.ipynb` გავუშვით უკვე რეგისტრირებული pipeline-ით და მხოლოდ raw Kaggle `test.csv` მივაწოდეთ. ამით შემოწმდა არა მხოლოდ prediction-ის კოდი, არამედ სრული deployment contract: W&B Registry → serialised pipeline → raw test → submission.
+
+```text
+W&B inference run             = prophet_v4_registry_raw_pipeline_inference
+run id                        = 1w7kftox
+registry alias                = Walmart_Prophet_Raw_Pipeline:champion
+pipeline class                = ProphetRawPipeline
+test / submission rows        = 115064 / 115064
+prediction minimum            = 0.0
+prediction mean               = 16604.3611
+prediction maximum            = 300000.0
+prediction SHA-256            = 43697ebd825c8b137bb61bccaa4a52a1687adba766edcf0398f7e64bf804e17c
+```
+
+ყველა prediction საბოლოო შემოწმებასაც გადის: რაოდენობა უნდა ემთხვეოდეს test row-ებს, მნიშვნელობები უნდა იყოს finite და არაუარყოფითი. შემდეგ იქმნება Kaggle-ის `Id, Weekly_Sales` ფორმატის CSV:
+
+```text
+prophet_v4_submission_registry_raw_pipeline.csv
+```
+
+ეს CSV, manifest JSON და prediction-distribution histogram ცალკე W&B `submission` artifact-ად დაილოგა. Manifest-ში წერია გამოყენებული registry URI, pipeline metadata, row count, prediction range და hash; ამიტომ ზუსტად აღდგება, რომელი pipeline-ით შეიქმნა submission.
+
+პირველი upload მცდელობისას `401 Unauthorized` მივიღეთ, რაც Kaggle API token-ის გარემოში არასწორად წაკითხვას ნიშნავდა და model/prediction პრობლემას არ წარმოადგენდა. Notebook-ის upload cell განახლდა Colab Secrets-ის `KAGGLE_API_TOKEN` access token-ისთვის. ამის შემდეგ Kaggle CLI-მ submission წარმატებით ატვირთა:
+
+```text
+Successfully submitted to Walmart Recruiting - Store Sales Forecasting
+```
+
 ## W&B-ზე შენახული ინფორმაცია
 
 ყოველი run W&B-ზე ინახავს:
@@ -467,7 +497,7 @@ predictions = pipeline.predict(raw_test)
   - config JSON;
   - diagnostic PNG.
 
-ამიტომ W&B run-დან ჩანს არა მხოლოდ საბოლოო score, არამედ რამდენი model fit-და, fallback რატომ გამოიყენეს და რომელ validation კვირებზე გაიზარდა შეცდომა.
+ამიტომ W&B run-დან ჩანს არა მხოლოდ საბოლოო score, არამედ რამდენი model fit-და, fallback რატომ გამოიყენეს, რომელ validation კვირებზე გაიზარდა შეცდომა და ზუსტად რომელი registered pipeline-ით შეიქმნა საბოლოო Kaggle CSV.
 
 ## დასკვნა
 
