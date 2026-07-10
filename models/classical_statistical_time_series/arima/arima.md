@@ -330,6 +330,140 @@ row-level allocation
 - seasonal naive-ზე მაინც უარესია;
 - final model candidate არ არის, მაგრამ useful diagnostic experiment არის.
 
+## ARIMAX ექსპერიმენტის ანალიზი
+
+ARIMA order search-ის შემდეგ ცალკე `model_experiment_ARIMAX.ipynb` notebook-ში გავტესტეთ ARIMAX, ანუ ARIMA external regressors-ით. აქ SARIMA არ გამოგვიყენებია. Seasonal order გამორთულია:
+
+```python
+seasonal_order = (0, 0, 0, 0)
+```
+
+ARIMAX-ის იდეა იყო, რომ aggregate weekly sales-ს გარდა model-ს ენახა weekly-level external signals:
+
+- holiday share;
+- average temperature;
+- fuel price;
+- CPI;
+- unemployment;
+- markdown totals;
+- calendar week/month signals.
+
+### ARIMAX-ის საუკეთესო შედეგი
+
+ARIMAX experiment-ის საუკეთესო შედეგი იყო:
+
+```text
+best_order: (0, 0, 0)
+best_allocation: last_year_share
+best_use_exog: True
+Validation WMAE: 2563.691454
+Validation MAE: 2517.848644
+Validation RMSE: 5135.390683
+Improvement vs seasonal naive: -42.413569%
+```
+
+ეს შედეგი ბევრად უარესია როგორც seasonal naive-ზე, ისე ARIMA baseline-ზე და tuned ARIMA-ზე.
+
+შედარება:
+
+| Model | Setup | Validation WMAE | Seasonal naive-სთან შედარება |
+| --- | --- | ---: | ---: |
+| Seasonal naive | 52-week row-level lag | `1800.17359` | reference |
+| Baseline ARIMA | `(1,1,1)` + `last_year_share` | `1856.86053` | `-3.14897%` |
+| Tuned ARIMA | `(1,0,2)` + `last_year_share` | `1829.87999` | `-1.65020%` |
+| ARIMAX | `(0,0,0)` + exog + `last_year_share` | `2563.69145` | `-42.41357%` |
+
+ამ ცხრილიდან ჩანს, რომ ARIMAX ამ ფორმით არ გაუმჯობესდა. პირიქით, external regressors-მა model-ის performance მნიშვნელოვნად გააუარესა.
+
+### რატომ გახდა ARIMAX ცუდი
+
+ჩემი შეფასებით, მთავარი მიზეზი ისაა, რომ ჩვენ ARIMAX-ში external features aggregate weekly დონეზე შევიყვანეთ, ხოლო final metric row-level Store-Dept prediction-ს აფასებს.
+
+ARIMAX ხედავს ასეთ data-ს:
+
+```text
+weekly total sales + weekly averaged/summed external variables
+```
+
+მაგრამ competition ითხოვს:
+
+```text
+Store + Dept + Date level Weekly_Sales
+```
+
+ამ დონეებს შორის დიდი information loss არის.
+
+მთავარი მიზეზები:
+
+1. **External regressors ზედმეტად aggregate იყო.**  
+   მაგალითად average temperature ან total markdown across all stores ვერ ამბობს, კონკრეტულ Store-Dept-ს რა მოუვა. Walmart sales ძალიან local და department-specific არის.
+
+2. **Markdown signals row-level demand-ს კარგად ვერ დაემთხვა.**  
+   Markdown-ები store/date დონეზეა, ჩვენ კი weekly aggregate-ად ვაქციეთ. შედეგად model-ში შევიდა noisy signal, რომელიც total weekly sales-ს შეიძლება სუსტად უკავშირდებოდეს, მაგრამ Store-Dept allocation-ს ვერ აუმჯობესებს.
+
+3. **ARIMAX-მა historical yearly pattern ჩაანაცვლა სუსტი exog signal-ით.**  
+   ამ dataset-ში ყველაზე ძლიერი signal არის 52-კვირიანი seasonal behavior. ARIMAX external variables-ს ზედმეტად ეყრდნობა, მაშინ როცა validation period-ისთვის row-level yearly structure უფრო მნიშვნელოვანია.
+
+4. **Best ARIMAX order გახდა `(0,0,0)`.**  
+   ეს ძალიან მნიშვნელოვანი სიგნალია. `(0,0,0)` ნიშნავს, რომ AR/MA dynamics პრაქტიკულად არ დაეხმარა და model ძირითადად exogenous regression-like behavior-ზე გადავიდა. რადგან exog features noisy იყო, result გაუარესდა.
+
+5. **Allocation bottleneck მაინც დარჩა.**  
+   თუნდაც aggregate weekly forecast გაუმჯობესებულიყო, row-level WMAE მაინც allocation-ზეა დამოკიდებული. ARIMAX-მა allocation პრობლემა არ გადაჭრა.
+
+### რატომ იყო `last_year_share` ისევ საუკეთესო
+
+ARIMAX-შიც საუკეთესო allocation იყო:
+
+```text
+last_year_share
+```
+
+მაგალითად საუკეთესო order-ზე:
+
+```text
+(0,0,0) + last_year_share WMAE = 2563.69
+(0,0,0) + blended_share   WMAE = 2744.69
+```
+
+ეს იმავე დასკვნას ადასტურებს, რაც pure ARIMA-ში ვნახეთ: Store-Dept distribution-ისთვის 52 კვირით ძველი sales share უფრო სანდოა, ვიდრე recent average-თან blending.
+
+### ARIMAX vs ARIMA
+
+ARIMAX-ის დამატებამ არ გააუმჯობესა ARIMA:
+
+```text
+Tuned ARIMA WMAE:  1829.88
+Best ARIMAX WMAE: 2563.69
+```
+
+გაუარესება:
+
+```text
+2563.69 - 1829.88 = 733.81 WMAE
+```
+
+ეს ძალიან დიდი სხვაობაა. ამიტომ ამ კონკრეტული implementation-ით ARIMAX არ უნდა ჩაითვალოს improvement-ად.
+
+### რა ვისწავლეთ ARIMAX-იდან
+
+ARIMAX-ის შედეგი არ ნიშნავს, რომ external features ყოველთვის ცუდია. ეს ნიშნავს, რომ ამ ფორმით aggregate ARIMAX არ იყო სწორი representation.
+
+External features უფრო კარგად მუშაობს tree-based models-ში, რადგან ისინი raw row-level feature-ებს იყენებენ:
+
+```text
+Store + Dept + Date + markdown + holiday + store metadata
+```
+
+ARIMAX-ში კი ეს ყველაფერი დაიკუმშა ერთ weekly aggregate time series-ად. ამან დაკარგა ის დეტალი, რომელიც Kaggle metric-ისთვის აუცილებელია.
+
+ამ ეტაპზე conclusions:
+
+- ARIMAX არ გაუმჯობესდა;
+- best ARIMAX ბევრად უარესია baseline ARIMA-ზე;
+- tuned pure ARIMA უკეთესია ARIMAX-ზე;
+- seasonal naive მაინც საუკეთესო classical baseline რჩება;
+- ARIMAX-ის ამ ვერსიას final candidate-ად არ ავირჩევდი.
+
 ## რატომ გამოვიდა ARIMA seasonal naive-ზე უარესი
 
 ჩემი შეფასებით, მთავარი მიზეზი ისაა, რომ Walmart weekly sales ძალიან ძლიერი yearly seasonality-ით მუშაობს. ბევრი Store-Dept series-ისთვის ყველაზე ძლიერი signal არის:
