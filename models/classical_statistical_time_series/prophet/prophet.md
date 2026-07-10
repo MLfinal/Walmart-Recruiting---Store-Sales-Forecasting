@@ -339,6 +339,62 @@ v5 raw Prophet = 1654.66
 
 v5-ის დასკვნა არ არის, რომ `features.csv` უსარგებლოა საერთოდ. ის tree-based/TFT global model-ებში შეიძლება უკეთ გამოიყენებოდეს. დასკვნა კონკრეტულად Prophet-ზეა: per-series Prophet-ისთვის v4-ის event calendar უფრო ძლიერი და სტაბილური feature engineering აღმოჩნდა, ვიდრე ამ ხუთი external regressor-ის ერთდროული დამატება.
 
+## Experiment v6 — historical blend-weight tuning
+
+v4-ის fixed `alpha=0.50` blend ძალიან კარგი აღმოჩნდა, მაგრამ ეს weight ხელით იყო არჩეული. v6-ში ახალი feature აღარ დაგვიმატებია. დავბრუნდით v4-ის event-aware calendar configuration-ზე და მხოლოდ blend weight გავტესტეთ:
+
+```text
+final prediction =
+(1 - alpha) × SeasonalNaive52 +
+alpha × raw Prophet
+```
+
+იმისთვის, რომ ბოლო 39-week validation-ზე alpha არ აგვერჩია, data სამ ნაწილად დაიყო:
+
+```text
+1. early history            → Prophet calibration fit
+2. next 26 weeks            → historical alpha calibration
+3. final 39 weeks           → untouched final validation
+```
+
+Calibration-ში ყველა `alpha = 0.00, 0.05, ..., 1.00` გაიტესტა 3,331 series-ზე. შედეგები:
+
+```text
+best calibration alpha = 0.45
+calibration WMAE       = 1653.7729
+
+next candidates:
+alpha 0.40 = 1654.9587
+alpha 0.50 = 1656.1512
+```
+
+ანუ ძველ historical period-ზე Prophet-ს seasonal-naive correction-ისთვის დაახლოებით 45% weight ყველაზე სტაბილურად გამოუვიდა. შემდეგ ეს `0.45` უცვლელად გადავიტანეთ საბოლოო 39-week validation-ზე.
+
+```text
+v6 tuned-alpha WMAE          = 1373.0902
+v4 fixed-0.50 WMAE           = 1367.4470
+difference vs v4             = +5.6432 WMAE  (0.41% worse)
+v6 raw Prophet WMAE          = 1534.8594
+seasonal naive WMAE          = 1604.2697
+best alpha                   = 0.45
+fit_ok / fallback            = 3259 / 72
+total elapsed time           = 35.3230 minutes
+```
+
+v6 მაინც seasonal naive-ზე `14.41%`-ით უკეთესია, მაგრამ v4-ის fixed 50/50 blend-ს ვერ აჯობა. ეს მნიშვნელოვანი და სანდო დასკვნაა: calibration fold-ზე ნაპოვნი alpha final validation-ზე თითქმის იგივე რეგიონში მუშაობს, მაგრამ ამ კონკრეტულ საბოლოო პერიოდზე `0.50` ოდნავ უკეთესია.
+
+ამიტომ tuning დასრულდა ამ არჩევანით:
+
+```text
+Prophet final champion = v4
+event-aware holiday windows
++ 0.50 × raw Prophet
++ 0.50 × SeasonalNaive52
+validation WMAE = 1367.4470
+```
+
+v6 არ არის წარუმატებელი run. მან დაადასტურა, რომ blend-ის სასარგებლო weight დაახლოებით `0.45–0.50` რეგიონშია და რომ v4-ის შედეგი შემთხვევითი ან აშკარად overfit weight არ იყო. მაგრამ final model selection-ში lowest untouched validation WMAE პრიორიტეტია, ამიტომ v4 რჩება საუკეთესო არჩევანად.
+
 ## W&B-ზე შენახული ინფორმაცია
 
 ყოველი run W&B-ზე ინახავს:
@@ -365,6 +421,6 @@ Prophet baseline დასრულებულია როგორც სრ�
 status = working, reproducible baseline; not stronger than seasonal naive
 ```
 
-მან დაადასტურა, რომ per-series classical forecasting და W&B logging სწორად მუშაობს. Direct baseline Prophet-ის `1625.48` WMAE-მ აჩვენა, რომ trend/yearly seasonality/holiday component მარტო ვერ ჯობდა Walmart-ის ძლიერი კონკრეტული-კვირა-წინა-წლის signal-ს. v3 blend-მა ეს `1402.26`-მდე ჩამოიყვანა, v4 event-aware holiday engineering-მა `1367.45`-მდე გააუმჯობესა, ხოლო v5-მა გვაჩვენა, რომ external covariate expansion ამ architecture-ში ამ ეტაპზე აღარ ეხმარება. Prophet family-ის champion რჩება v4.
+მან დაადასტურა, რომ per-series classical forecasting და W&B logging სწორად მუშაობს. Direct baseline Prophet-ის `1625.48` WMAE-მ აჩვენა, რომ trend/yearly seasonality/holiday component მარტო ვერ ჯობდა Walmart-ის ძლიერი კონკრეტული-კვირა-წინა-წლის signal-ს. v3 blend-მა ეს `1402.26`-მდე ჩამოიყვანა, v4 event-aware holiday engineering-მა `1367.45`-მდე გააუმჯობესა, v5 external covariates-მა გააუარესა, ხოლო v6 historical tuning-მა v4-ის alpha არჩევანი თითქმის დაადასტურა. Prophet family-ის champion რჩება v4.
 
 External-covariate v1-მა კი დაადასტურა, რომ feature imputation დროით უნდა შემოწმდეს: მომავალიდან backward fill არ შეიძლება. ამიტომ v1-ის მაღალი WMAE model-performance conclusion არ არის; ის არის მონაცემის მომზადების შეცდომის დაფიქსირებული შედეგი.
