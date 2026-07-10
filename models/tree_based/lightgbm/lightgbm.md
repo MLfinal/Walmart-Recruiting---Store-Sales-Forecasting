@@ -16,6 +16,39 @@ Notebook დაყოფილია რამდენიმე მთავა
 
 ეს სტრუქტურა ერგება პროექტის მოთხოვნას: preprocessing/feature engineering, feature selection და model training ცალ-ცალკე ეტაპებადაა გამოყოფილი და W&B-ში ცალკე run-ებად ილოგება.
 
+## ახალი LightGBM correction: რატომ ვცვლით FE/FS-ს
+
+ბოლო LightGBM submission-მა Kaggle-ზე მოსალოდნელზე ცუდი შედეგი მოგვცა:
+
+```text
+LightGBM Kaggle score: 3600
+XGBoost Kaggle score: 2806
+SARIMAX Kaggle score: 3525
+```
+
+ეს ნიშნავს, რომ LightGBM-ის წინა feature engineering validation-ზე კარგი ჩანდა, მაგრამ public test-ზე კარგად არ გადაგვყვა. ამიტომ ამ ეტაპზე ვთვლი, რომ ბოლო FE/FS version ოპტიმალური არ იყო. პრობლემა უფრო feature/inference consistency-შია, ვიდრე LightGBM model architecture-ში.
+
+ამიტომ `model_experiment_LightGBM.ipynb`-ში დავამატეთ XGBoost notebook-თან უფრო ახლოს მდგომი feature engineering:
+
+- `SalesLag52` აღარ ივსება median-ით; missing value რჩება `NaN`, რომ LightGBM-მა native missing handling გამოიყენოს.
+- `SalesLag52_available` ინახავს, არსებობს თუ არა same Store-Dept 52-week lag.
+- `Store_Dept` და `Type_Dept` interaction features გადავიყვანეთ numeric encoding-ზე, XGBoost-ის მსგავსად.
+- historical aggregate feature-ებს დაემატა count feature-ებიც:
+  - `Store_Sales_count`
+  - `Dept_Sales_count`
+  - `Store_Dept_Sales_count`
+  - `Type_Dept_Sales_count`
+- shifted expanding target aggregate logic უფრო ახლოსაა XGBoost-ის time-safe encoder-თან.
+- registered LightGBM pipeline ახლა raw `test.csv` rows-საც იღებს და თვითონ merge-ს აკეთებს stored `features.csv`/`stores.csv` tables-თან.
+
+რატომ არის ეს უკეთესი მიმართულება:
+
+- XGBoost-ის უკეთესი Kaggle score გვაჩვენებს, რომ row-level FE უფრო სწორად იყო მოწყობილი.
+- LightGBM-საც იგივე signal-ები სჭირდება: 52-week lag, Store-Dept identity, calendar/holiday features, markdown interaction და historical aggregate encodings.
+- დამატებითი hyperparameter tuning აზრს კარგავს, თუ train/test feature generation ბოლომდე სანდო არ არის.
+
+ამ ახალი ვერსიის მიზანი არ არის ძველი ექსპერიმენტის წაშლა. ძველი result რჩება შედარებისთვის, მაგრამ შემდეგი LightGBM training უნდა გაკეთდეს ამ corrected FE/FS setup-ით.
+
 ## Baseline LightGBM შედეგი
 
 Baseline notebook არის `baseline_lightgbm.ipynb`. მისი მიზანია გვქონდეს მარტივი საწყისი შედეგი, რომელსაც შევადარებთ feature engineering + feature selection + Optuna ექსპერიმენტს.
