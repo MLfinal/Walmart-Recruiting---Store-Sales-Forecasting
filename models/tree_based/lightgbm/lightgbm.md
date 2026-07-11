@@ -65,9 +65,11 @@ Validation MAE: 1608.3943
 
 Final notebook-ში გაკეთდა შემდეგი ცვლილებები:
 
-- fixed `100` estimator-ის ნაცვლად დაშვებულია მაქსიმუმ `5000` boosting round;
-- დაემატა `250`-round early stopping და საუკეთესო iteration-ის შენახვა;
-- Optuna search იყენებს `30` trial-ს, რათა final tuning პრაქტიკულ დროში დასრულდეს;
+- fixed `100` estimator-ის ნაცვლად დაშვებულია მაქსიმუმ `1200` boosting round;
+- დაემატა `80`-round early stopping და საუკეთესო iteration-ის შენახვა;
+- Optuna search შეზღუდულია მაქსიმუმ `12` trial-ითა და `720`-წამიანი tuning budget-ით, რათა validation/refit-თან ერთად training დაახლოებით 20 წუთში ჩაეტიოს;
+- პირველი Optuna trial იწყება წინა საუკეთესო `1615.45` WMAE configuration-ით, ხოლო დარჩენილი trials მის ახლო, უკვე პერსპექტიულ parameter range-ს იკვლევს;
+- feature-importance diagnostic model მხოლოდ `150` boosting round-ს იყენებს;
 - LightGBM training გადაყვანილია GPU-ზე (`device_type="gpu"`), ხოლო GPU-სთვის ეფექტური `max_bin=63` ფიქსირებულია;
 - search გაფართოებულია `num_leaves`, depth, sampling, regularization და `min_split_gain` პარამეტრებზე;
 - model selection კვლავ validation WMAE-ის მინიმიზაციით ხდება;
