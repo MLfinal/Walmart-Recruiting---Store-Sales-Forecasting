@@ -1016,6 +1016,72 @@ Best boosting iteration: 844
 
 Optuna trial-ის `1567.7045` და best-model retrain-ის `1575.1545` ერთმანეთისგან განსხვავდება stochastic row/feature sampling-ისა და early-stopping trajectory-ის გამო. Final model-ის აღწერისთვის უფრო კონსერვატიულ `1575.1545` retrain metric-ს ვიყენებთ. მაღალი MAPE model selection-ისთვის სასარგებლო არ არის, რადგან dataset-ში zero, near-zero და negative sales პროცენტულ error-ს არასტაბილურს ხდის.
 
+### Metrics-ის ურთიერთდამოკიდებულება და training-ის დროს ცვლილება
+
+Notebook-ში metrics ორი განსხვავებული სიხშირით ითვლება:
+
+- LightGBM ყოველი boosting iteration-ისთვის ითვლის weighted `l1`-ს train და validation set-ზე. ეს curves ჩანს როგორც `train_l1` და `validation_l1`.
+- `WMAE`, ჩვეულებრივი `MAE`, `MSE`, `RMSE`, `R²` და `MAPE` სრულად ითვლება trial-ის დასრულების შემდეგ მიღებულ validation prediction-ებზე. ამიტომ ამ დამატებითი metrics-ის თითო-tree curve შენახული არ არის; მათი ცვლილება trial-ებსა და final retrain-ს შორის შეგვიძლია შევადაროთ.
+
+Metrics-ის კავშირი ასეთია:
+
+```text
+MAE  = mean(|y - prediction|)
+WMAE = sum(weight × |y - prediction|) / sum(weight)
+MSE  = mean((y - prediction)²)
+RMSE = sqrt(MSE)
+R²   = 1 - SSE / SST
+MAPE = mean(|y - prediction| / max(|y|, 1)) × 100
+```
+
+- **MAE და WMAE** ერთსა და იმავე absolute error-ს ზომავს, მაგრამ WMAE holiday rows-ს ხუთმაგ წონას აძლევს. თუ WMAE MAE-ზე მაღალია, მოდელს holiday კვირებზე შედარებით მეტი შეცდომა აქვს.
+- **MSE და RMSE** ერთმანეთზე პირდაპირაა დამოკიდებული: `RMSE = sqrt(MSE)`. ორივე დიდ შეცდომებს MAE-ზე უფრო მკაცრად სჯის, რადგან MSE error-ს კვადრატში იღებს.
+- **R² და MSE** ფიქსირებულ validation set-ზე საპირისპირო მიმართულებით მოძრაობს: squared error-ის შემცირებისას R² იზრდება. `R² = 1` იდეალურ prediction-ს ნიშნავს.
+- **MAPE** პროცენტულ შეცდომას ზომავს, მაგრამ Walmart dataset-ში zero, near-zero და negative sales-ის გამო ძალიან მაღალი და არასტაბილურია. ამიტომ მისი ცვლილება WMAE-ს ყოველთვის არ ემთხვევა.
+
+Final best-model retrain-ის iteration curve:
+
+| Iteration | Train weighted L1 | Validation weighted L1 | ინტერპრეტაცია |
+| ---: | ---: | ---: | --- |
+| 100 | `1697.19` | `1647.72` | ძირითადი sales pattern სწრაფად ისწავლა |
+| 200 | `1438.09` | `1609.98` | validation error მკვეთრად შემცირდა |
+| 400 | `1258.22` | `1590.88` | improvement გაგრძელდა, მაგრამ უფრო ნელა |
+| 600 | `1158.81` | `1581.55` | train/validation gap იზრდება |
+| 800 | `1104.48` | `1576.53` | validation უკვე plateau-ს უახლოვდება |
+| 844 | `1093.72` | `1575.15` | საუკეთესო validation iteration |
+| 900 | `1085.46` | `1575.43` | train უმჯობესდება, validation აღარ უმჯობესდება |
+
+პირველ 200 iteration-ში validation L1 დაახლოებით `37.74`-ით შემცირდა (`1647.72 → 1609.98`). შემდეგ 200-დან 844 iteration-მდე დამატებითი improvement დაახლოებით `34.83` იყო. ანუ დასაწყისში model სწრაფად სწავლობდა მთავარ pattern-ებს, მოგვიანებით კი თითოეული დამატებითი tree სულ უფრო მცირე სარგებელს იძლეოდა.
+
+Train L1 მთელი დროის განმავლობაში მცირდებოდა, მაგრამ validation L1 iteration 844-ის შემდეგ ოდნავ გაიზარდა (`1575.15 → 1575.43`). ეს არის მსუბუქი overfitting-ის დასაწყისი და ზუსტად ამიტომ იყო early stopping საჭირო. Final full-data model `844` boosting round-ით გაიწვრთნა.
+
+Trial-ებს შორის ყველა metric ასე შეიცვალა:
+
+| Run | WMAE ↓ | MAE ↓ | MSE ↓ | RMSE ↓ | R² ↑ | MAPE ↓ |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Trial 0 | `1604.51` | `1584.84` | `11,727,770` | `3424.58` | `0.975758` | `572.80%` |
+| Trial 1 — Optuna best | `1567.70` | `1549.70` | `11,309,677` | `3362.99` | `0.976622` | `563.37%` |
+| Trial 2 | `1607.12` | `1587.39` | `11,674,103` | `3416.74` | `0.975869` | `560.54%` |
+| Trial 3 | `1616.69` | `1597.23` | `12,115,230` | `3480.69` | `0.974957` | `546.49%` |
+| Best-model retrain | `1575.15` | `1553.00` | `11,356,628` | `3369.96` | `0.976525` | `541.77%` |
+
+Trial 0-დან Trial 1-მდე ყველა მთავარი error metric გაუმჯობესდა:
+
+- WMAE: `1604.51 → 1567.70`;
+- MAE: `1584.84 → 1549.70`;
+- RMSE: `3424.58 → 3362.99`;
+- R²: `0.975758 → 0.976622`.
+
+ეს თანმიმდევრობა გვაჩვენებს, რომ Trial 1-ის improvement მხოლოდ holiday-weighted rows-ზე არ მომხდარა: შემცირდა როგორც ჩვეულებრივი absolute error, ისე squared error და ახსნილი variance-იც გაიზარდა.
+
+მეორე მხრივ, Trial 2-ს Trial 0-ზე ოდნავ უარესი WMAE ჰქონდა (`1607.12` vs `1604.51`), მაგრამ უკეთესი RMSE (`3416.74` vs `3424.58`) და R² (`0.975869` vs `0.975758`). ეს მნიშვნელოვანი მაგალითია: სხვადასხვა metric ყოველთვის ერთსა და იმავე model-ს არ ირჩევს. Trial 2-ში დიდი outlier errors ოდნავ უკეთ კონტროლდებოდა, მაგრამ holiday-weighted absolute error გაუარესდა. რადგან Kaggle WMAE-ს იყენებს, Optuna-ს სწორი არჩევანი მაინც Trial 1 იყო.
+
+Final retrain-ზე WMAE `1575.15`, ხოლო MAE `1553.00` გახდა — სხვაობა დაახლოებით `22.16`-ია. ეს ნიშნავს, რომ holiday rows კვლავ ჩვეულებრივ rows-ზე რთულია. მიუხედავად ამისა, WMAE და MAE ერთმანეთთან ახლოსაა, ამიტომ model-ის ხარისხი მხოლოდ non-holiday კვირებით არ არის მიღებული.
+
+MSE `11,356,628` და RMSE `3369.96` ზუსტად ერთსა და იმავე squared-error ინფორმაციას სხვადასხვა scale-ზე გამოხატავს. R² `0.976525` ნიშნავს, რომ validation target variance-ის დაახლოებით `97.65%` model-მა ახსნა. ეს მაღალი მაჩვენებელია, თუმცა Kaggle model selection-ისთვის WMAE მაინც მთავარი რჩება.
+
+MAPE ყველა trial-ში `500%`-ზე მაღალი დარჩა და სხვა metrics-ს თანმიმდევრულად არ მიჰყვა. მაგალითად, Trial 3-ს ყველაზე ცუდი WMAE ჰქონდა, მაგრამ Trial 0-ზე დაბალი MAPE. ეს ადასტურებს, რომ ამ dataset-ზე MAPE diagnostic warning-ად უნდა დარჩეს და model selection-ში არ უნდა გამოვიყენოთ.
+
 ### Kaggle შედეგი და ძველ მოდელებთან შედარება
 
 ```text
