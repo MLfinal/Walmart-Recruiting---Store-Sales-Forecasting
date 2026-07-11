@@ -262,3 +262,152 @@ W&B-ზე დაილოგა ოთხივე candidate-ის calibration
 | v2 calibrated blend | naive + raw + residual | **`1620.5430`** | განსხვავებული zero-shot errors-ის გაერთიანება საუკეთესოა |
 
 ორი run-ის შემდეგ TimesFM-ის საუკეთესო valid შედეგია v2 calibrated blend `1620.54`. ჯერ არცერთი TimesFM parameter არ შეცვლილა და external covariate არ გამოგვიყენებია. მიღებული გაუმჯობესება მთლიანად representation-ის შეცვლამ, historical calibration-მა და complementary forecasts-ის გაერთიანებამ შექმნა.
+
+## Experiment v3 — TimesFM XReg და corrected calibration
+
+v3-ში პირველად მივეცით TimesFM-ს target history-ის გარდა known-future context. TimesFM-ის neural weights კვლავ არ დაგვიტრენინგებია; გამოვიყენეთ TimesFM 2.5-ის ოფიციალური XReg mechanism, რომელიც context-ში target/covariate ურთიერთობას მსუბუქი regression correction-ით აკავშირებს pretrained forecast-თან.
+
+v2-ის დაახლოებით 39-წუთიანი raw/residual inference აღარ გაგვიმეორებია. W&B-დან ჩამოვტვირთეთ artifact:
+
+```text
+timesfm-v2-zero-shot-residual-calibration:latest
+calibration rows = 59,317
+validation rows  = 115,588
+```
+
+ამით v3 notebook-ში v2-ის ზუსტად იგივე predictions გამოვიყენეთ და მხოლოდ ახალი XReg component დავითვალეთ. ეს ამცირებს runtime-ს და გამორიცხავს იმის რისკს, რომ comparison checkpoint/API-ის შემთხვევითი განსხვავების გამო შეიცვალოს.
+
+### დამატებული covariates
+
+Dynamic numerical covariates:
+
+```text
+Temperature, Fuel_Price, CPI, Unemployment
+ამ ოთხივე feature-ის missing indicator
+log1p(total Markdown1–5)
+Markdown missing count
+week-of-year sine/cosine
+month sine/cosine
+```
+
+Dynamic categorical covariates:
+
+```text
+IsHoliday
+event: none / Super Bowl / Labor Day / Thanksgiving / Christmas
+week of year
+```
+
+Static covariates:
+
+```text
+Store, Dept, Type, Size
+```
+
+ყველა dynamic array მოიცავდა როგორც context-ს, ისე შესაბამის forecast horizon-ს. Markdown-ის missing value გახდა `0` და ცალკე missing indicator; Temperature/Fuel/CPI/Unemployment დამუშავდა Store-level forward fill-ით და მხოლოდ context-period median-ით. Future period-იდან backward fill არ გამოგვიყენებია, ამიტომ feature preparation leakage-safe დარჩა.
+
+### XReg mode comparison
+
+Calibration-ზე შევადარეთ ორივე ოფიციალური composition order:
+
+| XReg mode | Combined WMAE | Pure XReg WMAE |
+| --- | ---: | ---: |
+| `timesfm + xreg` | **`3242.5574`** | `3213.9526` |
+| `xreg + timesfm` | `3259.0939` | `3173.4844` |
+
+Final forecast-ისთვის combined prediction-ის მიხედვით ავირჩიეთ `timesfm + xreg`. ორივე mode calibration-ზე საკმაოდ მაღალი error-ით მუშაობდა, მაგრამ comparison ერთსა და იმავე historical period-ზე შესრულდა და არჩევანი final validation-მდე გაკეთდა.
+
+არჩეული XReg mode-ის final შედეგი:
+
+```text
+TimesFM + XReg WMAE = 1939.0755
+Pure XReg WMAE      = 1992.9980
+```
+
+ანუ XReg standalone forecast raw TimesFM-ზე ბევრად უარესი აღმოჩნდა. ბევრი external feature-ის არსებობა თავისთავად უკეთეს forecast-ს არ ნიშნავს: XReg-ის regression correction linear/limited-ია, Store–Dept histories მოკლეა, feature effects department-specific და ხშირად არაწრფივია. განსაკუთრებით Markdown/holiday effect სხვადასხვა department-ზე განსხვავებულად მოქმედებს.
+
+### v2 clipping inconsistency-ის გასწორება
+
+v3-ში ყველა weight combination ზუსტად deployment order-ით შეფასდა:
+
+```text
+weighted candidate sum
+→ clip [0, 300000]
+→ calibration WMAE
+```
+
+არჩეული blend materialize-ის შემდეგ assertion ამოწმებს, რომ ხელახლა დათვლილი calibration WMAE grid-search score-ს `1e-9` tolerance-ით ემთხვევა. v3-ში calibration logging-ის ძველი `1908.58 / 1935.87` შეუსაბამობა აღარ არსებობს.
+
+### Corrected blend weights
+
+ოთხკომპონენტიანმა search-მა აირჩია:
+
+```text
+SeasonalNaive52 weight   = 0.40
+Raw TimesFM weight       = 0.05
+Residual TimesFM weight  = 0.45
+TimesFM XReg weight      = 0.10
+calibration WMAE         = 1918.6194
+```
+
+XReg-ს მხოლოდ `10%` მიეცა. ეს ზუსტად შეესაბამება standalone diagnostics-ს: XReg საკმარისად ძლიერი არ არის ძირითადი forecast-ისთვის, მაგრამ განსხვავებული covariate-driven error pattern მცირე correction-ის სახით სასარგებლოა. Raw TimesFM-ის weight `10%`-დან `5%`-მდე შემცირდა, seasonal/residual structure კი კვლავ blend-ის `85%` დარჩა.
+
+### Final validation შედეგები
+
+| Candidate | Calibration WMAE | Final validation WMAE | Final MAE |
+| --- | ---: | ---: | ---: |
+| TimesFM v3 corrected blend | `1918.6194` | **`1588.8029`** | `1593.3578` |
+| Raw TimesFM | `3601.4726` | `1672.2525` | `1611.6392` |
+| Residual TimesFM | `2072.9576` | `1720.1709` | `1736.1453` |
+| SeasonalNaive52 | `2106.7113` | `1799.0451` | `1796.0549` |
+| TimesFM XReg | `3242.5574` | `1939.0755` | `1903.4276` |
+| Pure XReg | — | `1992.9980` | `1958.3267` |
+
+v2-დან გაუმჯობესება:
+
+```text
+v2 blend = 1620.5430
+v3 blend = 1588.8029
+difference = 31.7401 WMAE
+relative improvement = 1.9586%
+```
+
+v1 raw zero-shot-თან შედარებით საერთო გაუმჯობესება უკვე `83.45` WMAE, დაახლოებით `4.99%`-ია. Seasonal naive-სთან შედარებით v3 დაახლოებით `11.69%`-ით უკეთესია.
+
+მნიშვნელოვანია, რომ v3-v2 მოგება მთლიანად XReg-ს არ უნდა მივაწეროთ: v3-ში ერთდროულად დაემატა XReg candidate და გასწორდა clipping-aware weight selection. მიღებული `1588.80` არის ამ ორი ცვლილების ერთობლივი final result. მიუხედავად ამისა, არჩეული `10%` XReg weight ადასტურებს, რომ calibration-მა covariate forecast მთლიანად არ უარყო.
+
+Weekly plot-ზე v3 blend უმეტეს კვირაში raw TimesFM-სა და seasonal naive-ზე დაბალია. XReg curve რამდენიმე პერიოდში მკვეთრად უარესდება და standalone მაღალი WMAE სწორედ ამ არასტაბილურობიდან მოდის. Blend ამ spikes-ს `10%` weight-ით ზღუდავს, მაგრამ იმ კვირებში, სადაც covariates სასარგებლოა, მცირე correction-ს ინარჩუნებს.
+
+### Runtime და W&B
+
+TimesFM model cache-იდან `3.11` წამში ჩაიტვირთა. ორი calibration mode და ერთი final XReg pass ჯამში მხოლოდ `1.01` წუთს გაგრძელდა:
+
+```text
+xreg + timesfm calibration  = 0.381 წუთი
+timesfm + xreg calibration  = 0.301 წუთი
+selected final XReg         = 0.329 წუთი
+```
+
+W&B run:
+
+```text
+run name = timesfm_v3_xreg_covariates_corrected_blend
+run id   = eyzk1bc6
+artifact = timesfm-v3-xreg-corrected-calibration
+```
+
+Artifact-ში ინახება calibration/validation predictions, ორივე XReg mode-ის table, ოთხკომპონენტიანი weight grid, candidate scores, metrics/config, diagnostic plot და prediction hash:
+
+```text
+1f679bf22ecf973baacc07019a1bb7257d0e4f8cba62def07f6e9bf59f7b7592
+```
+
+## v1–v3 მდგომარეობა
+
+| Version | მთავარი ცვლილება | საუკეთესო WMAE | v1-თან ცვლილება |
+| --- | --- | ---: | ---: |
+| v1 | raw TimesFM zero-shot | `1672.2525` | reference |
+| v2 | seasonal/raw/residual historical blend | `1620.5430` | `3.09%` უკეთესი |
+| v3 | XReg covariates + corrected four-way blend | **`1588.8029`** | `4.99%` უკეთესი |
+
+სამი run-ის შემდეგ TimesFM family-ის champion არის v3 blend. Foundation model-ის weights ჯერ ერთხელაც არ განახლებულა: მთელი გაუმჯობესება zero-shot temporal forecast-ის, yearly residual representation-ის, leakage-safe covariates-ის და historical calibration-ის სწორად გაერთიანებიდან მივიღეთ.
