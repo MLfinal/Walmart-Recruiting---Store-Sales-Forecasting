@@ -149,3 +149,116 @@ Artifact-ში შევინახეთ validation predictions CSV, weekly d
 TimesFM zero-shot baseline წარმატებულია როგორც foundation-model proof of concept. იგი სწრაფად გაეშვა T4-ზე, მოიცვა ყველა `3,204` validation series fallback-ის გარეშე და training-ის გარეშე აჯობა იმავე evaluator-ის seasonal naive-ს. მთავარი აღმოჩენა არის არა მხოლოდ `1672.25` WMAE, არამედ ის, რომ external features-ისა და Walmart-specific fitting-ის გარეშე model-მა უკვე სასარგებლო complementary forecast შექმნა.
 
 ამ run-მა ასევე აჩვენა გაუმჯობესების ძირითადი სივრცე: model ამჟამად ვერ ხედავს Store/Dept ურთიერთობებს, holiday event-ს, Markdown-ს და სხვა known-future context-ს, ხოლო high-sales rows-ზე error dispersion ჯერ მაღალია.
+
+## Experiment v2 — seasonal residual და historical calibration
+
+v1-მა დაამტკიცა, რომ raw zero-shot TimesFM სასარგებლო forecast-ს ქმნის. v2-ში model-ის weights კვლავ არ შეგვიცვლია: არც training და არც fine-tuning არ ჩატარებულა. შევამოწმეთ, TimesFM უკეთ შეძლებდა თუ არა მთლიან `Weekly_Sales`-ის ნაცვლად წინა წლის შესაბამის კვირასთან ცვლილების პროგნოზირებას.
+
+Residual განვსაზღვრეთ ასე:
+
+```text
+Residual(t) = WeeklySales(t) - WeeklySales(t - 52)
+```
+
+TimesFM-ის residual forecast ისევ გაყიდვების scale-ზე დავაბრუნეთ:
+
+```text
+TimesFMResidualPrediction(t)
+= SeasonalNaive52(t) + ForecastedResidual(t)
+```
+
+შემდეგ სამი განსხვავებული signal გავაერთიანეთ:
+
+```text
+w_naive   × SeasonalNaive52
++ w_raw    × RawTimesFM
++ w_resid  × TimesFMResidualPrediction
+```
+
+Weights იყო არაუარყოფითი, მათი ჯამი `1`, ხოლო grid-ის ნაბიჯი `0.05`. ყველაზე მნიშვნელოვანი methodological წესი იყო ის, რომ weights final validation-ზე არ აგვირჩევია. არსებული 143 კვირა სამ chronological ნაწილად გაიყო:
+
+```text
+calibration context       = პირველი 84 კვირა
+weight calibration        = 20 კვირა, 2011-09-16 → 2012-01-27
+untouched validation      = 39 კვირა, 2012-02-03 → 2012-10-26
+```
+
+Residual sequence მხოლოდ 52-week difference-ის შექმნის შემდეგ იწყება. ამიტომ calibration residual context იყო `32` კვირა, final residual context კი `52` კვირა. ეს ბევრად მოკლე history-ა, ვიდრე raw TimesFM-ის `84/104` კვირა და residual-only შედეგის შეფასებისას მნიშვნელოვანი გარემოებაა.
+
+### Inference-ის შესრულება
+
+v2-ში ერთი checkpoint ოთხჯერ გამოვიყენეთ:
+
+| Pass | Context | Horizon | დრო |
+| --- | ---: | ---: | ---: |
+| raw calibration | 84 | 20 | `9.61` წუთი |
+| residual calibration | 32 | 20 | `9.65` წუთი |
+| raw final | 104 | 39 | `9.65` წუთი |
+| residual final | 52 | 39 | `9.65` წუთი |
+
+სრული TimesFM inference გაგრძელდა `38.56` წუთი. Checkpoint cache-იდან `14.09` წამში ჩაიტვირთა, peak GPU memory კი `6.67 GB` იყო. ყველა `3,204` validation series კვლავ სრულად დამუშავდა.
+
+### Calibration-ის მიერ არჩეული weights
+
+20-კვირიან historical calibration-ზე grid search-მა აირჩია:
+
+```text
+w_naive     = 0.45
+w_raw       = 0.10
+w_residual  = 0.45
+reported grid WMAE = 1908.5810
+```
+
+Raw TimesFM-ის მხოლოდ `0.10` weight აჩვენებს, რომ calibration regime-ში მისი დამოუკიდებელი forecast არასტაბილური იყო. Seasonal baseline და residual reconstruction თითქმის თანაბარი წონით გაერთიანდა, ხოლო raw forecast მცირე complementary correction-ად დარჩა.
+
+### Final validation შედეგები
+
+არჩეული weights უცვლელად გადავიტანეთ ბოლო 39 კვირაზე:
+
+| Candidate | Calibration WMAE | Final validation WMAE | Final MAE |
+| --- | ---: | ---: | ---: |
+| Calibrated blend | `1935.8667` | **`1620.5430`** | `1621.6440` |
+| Raw TimesFM | `3601.4726` | `1672.2525` | `1611.6392` |
+| TimesFM residual | `2072.9576` | `1720.1709` | `1736.1453` |
+| SeasonalNaive52 | `2106.7113` | `1799.0451` | `1796.0549` |
+
+v2 blend-ის გაუმჯობესება v1 raw TimesFM-თან შედარებით:
+
+```text
+1672.2525 → 1620.5430
+improvement = 51.7095 WMAE = 3.0922%
+```
+
+იმავე final evaluator-ის seasonal naive-სთან შედარებით გაუმჯობესება დაახლოებით `9.92%` გახდა. შესაბამისად, residual-only forecast v1-ზე უკეთესი არ ყოფილა, მაგრამ მისი error raw TimesFM-ის error-ისგან საკმარისად განსხვავდებოდა და blend-ში სასარგებლო კომპონენტი გახდა.
+
+Weekly plot-ზეც calibrated blend უმეტეს კვირაში raw, residual და seasonal curves-ის უკიდურეს შეცდომებს არბილებს. ყველაზე რთულ spike-ზე ყველა candidate უარესდება, თუმცა blend-ის peak შედარებით დაბალია. ეს არის ensemble-ის რეალური სარგებელი: იგი არც ერთ forecast-ს სრულად არ ენდობა.
+
+### Calibration logging-ის აღმოჩენილი შეუსაბამობა
+
+Run-ში grid search-ის საუკეთესო calibration WMAE არის `1908.5810`, ხოლო შემდეგ იმავე blend column-ის ხელახლა დათვლილი WMAE — `1935.8667`. მიზეზი execution order ან target leakage არ ყოფილა. Weight-search objective blend-ს clipping-მდე აფასებდა, ხოლო `TimesFM_CalibratedBlend` column-ის შექმნისას prediction `0`–`300000` დიაპაზონში იჭრებოდა.
+
+`Weekly_Sales`/seasonal history-ში მცირე უარყოფითი values არსებობს, ამიტომ clipping-მდე და clipping-ის შემდეგ WMAE ზუსტად ერთნაირი ვერ დარჩა. Final `1620.5430` score უკვე რეალურად შენახულ, clipped prediction-ზეა დათვლილი და სწორია, მაგრამ weight selection objective deployment postprocessing-ს იდეალურად არ ემთხვეოდა. ეს leakage არ არის; ეს calibration implementation-ის მცირე inconsistency-ია, რომელიც შემდეგ weight search-ში clipping-ის grid-ის შიგნით გადატანით უნდა გასწორდეს.
+
+### W&B run და artifact
+
+```text
+run name = timesfm_v2_zero_shot_residual_calibrated_blend
+run id   = hewjpg8r
+artifact = timesfm-v2-zero-shot-residual-calibration
+```
+
+W&B-ზე დაილოგა ოთხივე candidate-ის calibration/final score, არჩეული weights, top-50 weight combinations, calibration და validation predictions, weekly comparison plot, runtime/GPU metrics, config და prediction hash:
+
+```text
+73970198d411d7724645aff8e3acf65871991b5697f628a14472ecce44d7867f
+```
+
+## v1 და v2-ის ერთიანი დასკვნა
+
+| Version | მიდგომა | Final WMAE | მთავარი ცოდნა |
+| --- | --- | ---: | --- |
+| v1 | raw TimesFM zero-shot | `1672.2525` | pretrained forecast seasonal naive-ს training-ის გარეშე სჯობს |
+| v2 residual-only | SeasonalNaive52 + forecasted residual | `1720.1709` | მოკლე residual history დამოუკიდებლად საკმარისი არ არის |
+| v2 calibrated blend | naive + raw + residual | **`1620.5430`** | განსხვავებული zero-shot errors-ის გაერთიანება საუკეთესოა |
+
+ორი run-ის შემდეგ TimesFM-ის საუკეთესო valid შედეგია v2 calibrated blend `1620.54`. ჯერ არცერთი TimesFM parameter არ შეცვლილა და external covariate არ გამოგვიყენებია. მიღებული გაუმჯობესება მთლიანად representation-ის შეცვლამ, historical calibration-მა და complementary forecasts-ის გაერთიანებამ შექმნა.
