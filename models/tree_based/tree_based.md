@@ -12,8 +12,10 @@
 Tree-based მიმართულებაში final Kaggle submission-ებმა ასეთი შედეგი მისცა:
 
 ```text
-XGBoost Kaggle score  = 2806
-LightGBM Kaggle score = 3600
+XGBoost Kaggle score                  = 2806
+LightGBM safe SalesLag52 score       ≈ 3600
+LightGBM corrected XGBoost-aligned   ≈ 3490
+LightGBM latest FE/FS score           = 3500
 ```
 
 ჩემი შეფასებით, საბოლოო Kaggle შედეგით XGBoost უკეთესი გამოვიდა. ეს არ ნიშნავს, რომ XGBoost-ის architecture თავისთავად ყოველთვის LightGBM-ზე უკეთესია. ორივე gradient boosted tree family-ს ეკუთვნის და ორივე კარგად მუშაობს tabular forecasting-ზე. ამ კონკრეტულ პროექტში XGBoost-ის უპირატესობა უფრო მეტად მოვიდა pipeline/design ნაწილიდან:
@@ -35,7 +37,8 @@ LightGBM safe SalesLag52 setup ≈ 3600
 
 ```text
 XGBoost = 2806
-LightGBM = 3600
+LightGBM best previous result ≈ 3490
+LightGBM latest FE/FS = 3500
 ```
 
 ჩემი დასკვნა ასეთია: XGBoost-მა მოიგო არა მხოლოდ model architecture-ის გამო, არამედ იმიტომ, რომ მისი feature engineering და inference contract უფრო სწორად იმეორებდა რეალურ Kaggle test სიტუაციას. LightGBM validation-ზე ძლიერი იყო, მაგრამ final Kaggle-ზე XGBoost-ის pipeline უფრო საიმედო აღმოჩნდა.
@@ -54,8 +57,8 @@ LightGBM = 3600
 | Validation | chronological split; 52 კვირა baseline/tuning-ში, შემდეგ 32 კვირა final candidate-ში | chronological split; 32 კვირა |
 | Feature engineering | feature-rich raw-input transformer, 81 feature | sklearn-style feature pipeline, 82 feature → 47 selected |
 | Tuning | Optuna, 20 trial | Optuna, 50 trial |
-| Best validation result | `1612.13` WMAE final candidate, 32 კვირა | old unsafe: `1573.50`; new safe: `1633.37` |
-| Kaggle score | `2806` | `3600` |
+| Best validation result | `1612.13` WMAE final candidate, 32 კვირა | old unsafe: `1573.50`; safe: `1633.37`; corrected: `1615.45` |
+| Kaggle score | `2806` | best previous: ≈`3490`; latest FE/FS: `3500` |
 | Registered artifact | `Walmart_XGBoost_Pipeline:champion` | `Walmart_LightGBM_Pipeline:champion` |
 | Inference style | raw `test.csv` პირდაპირ pipeline-ში | registered bundle ქმნის safe `SalesLag52`-ს stored history-დან |
 | Inference run | `7991kiez` | latest registry inference run |
@@ -259,6 +262,8 @@ LightGBM-ის pattern XGBoost-ისგან განსხვავებ�
 | XGBoost final candidate | 32 კვირა | 81 feature | selected params | `1612.13` | LightGBM split-თან უფრო შესადარებელი |
 | LightGBM engineered old | 32 კვირა | unsafe lag/rolling + selected features | 50 trial | `1573.50` | validation optimistic იყო |
 | LightGBM safe retrain | 32 კვირა | safe `SalesLag52` + selected features | 50 trial | `1633.37` | Kaggle-ზე უკეთ generalized |
+| LightGBM corrected XGBoost-aligned | 32 კვირა | XGBoost-aligned safe features | 50 trial | `1615.45` | Kaggle score ≈`3490` |
+| LightGBM latest FE/FS | — | ახალი FE/FS setup | — | არ არის მოწოდებული | Kaggle score `3500`; improvement არ არის |
 
 ამ ცხრილში მთავარი comparison არის:
 
@@ -266,11 +271,14 @@ LightGBM-ის pattern XGBoost-ისგან განსხვავებ�
 XGBoost final candidate: 1612.13
 LightGBM old unsafe validation: 1573.50
 LightGBM safe validation: 1633.37
+LightGBM corrected validation: 1615.45
 XGBoost Kaggle: 2806
-LightGBM Kaggle: 3600
+LightGBM safe Kaggle: ≈3600
+LightGBM corrected XGBoost-aligned Kaggle: ≈3490
+LightGBM latest FE/FS Kaggle: 3500
 ```
 
-ძველ LightGBM-ს validation-ზე უკეთესი რიცხვი ჰქონდა, მაგრამ ეს შედეგი Kaggle-ზე არ დადასტურდა. safe retrain-ის შემდეგ LightGBM validation ოდნავ გაუარესდა, მაგრამ Kaggle score გაუმჯობესდა. ამის მიზეზი იყო feature leakage-ის შემცირება.
+ძველ LightGBM-ს validation-ზე უკეთესი რიცხვი ჰქონდა, მაგრამ ეს შედეგი Kaggle-ზე არ დადასტურდა. safe retrain-მა leakage შეამცირა, ხოლო corrected XGBoost-aligned run-მა Kaggle score დაახლოებით `3490`-მდე ჩამოიყვანა. უახლესმა FE/FS run-მა `3500` მიიღო — წინა შედეგზე დაახლოებით `10` point-ით უარესი — ამიტომ ახალი ცვლილება improvement არ არის.
 
 LightGBM-ის ძლიერი მხარეები მაინც დარჩა:
 
@@ -436,7 +444,7 @@ prediction_max = 179720.57
 | Best tree shape | deep trees, strong L2 regularization | many leaves, deep trees, high min_child_samples |
 | Inference portability | more self-contained raw-input sklearn Pipeline | registry bundle owns history and creates safe `SalesLag52` |
 | Registry artifact | raw pipeline with feature transformer + model | bundle with feature_pipeline, selected_features, model |
-| Best documented score | `1612.13` validation; `2806` Kaggle | `1633.37` safe validation; `3600` Kaggle |
+| Best documented score | `1612.13` validation; `2806` Kaggle | `1615.45` corrected validation; ≈`3490` best Kaggle; `3500` latest FE/FS |
 
 ## 7. რატომ ჩანდა LightGBM უკეთესი validation-ზე, მაგრამ XGBoost გახდა უკეთესი Kaggle-ზე
 
@@ -466,10 +474,11 @@ Tree-based მიმართულებაში ორივე მოდე�
 
 ```text
 XGBoost Kaggle score = 2806
-LightGBM Kaggle score = 3600
+LightGBM best previous Kaggle score ≈ 3490
+LightGBM latest FE/FS Kaggle score = 3500
 ```
 
-validation-ზე LightGBM-ის ძველი result უფრო ლამაზი იყო, მაგრამ final Kaggle-ზე XGBoost უკეთ generalized. ამიტომ practical decision-ში XGBoost უნდა ჩაითვალოს tree-based champion-ად.
+validation-ზე corrected LightGBM თითქმის XGBoost-ის დონეზეა (`1615.45` და `1612.13`), მაგრამ Kaggle-ზე იგივე სიახლოვე არ შენარჩუნდა. LightGBM-ის საუკეთესო წინა შედეგი დაახლოებით `3490` იყო, ახალმა FE/FS-მა კი `3500` მიიღო და improvement ვერ აჩვენა. ორივე მნიშვნელოვნად უარესია XGBoost-ის `2806`-ზე, ამიტომ practical decision-ში XGBoost tree-based champion-ად რჩება.
 
 ამიტომ tree-based comparison-ის practical conclusion ასეთია:
 

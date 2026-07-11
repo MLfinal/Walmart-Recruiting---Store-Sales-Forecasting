@@ -59,6 +59,22 @@ Validation MAE: 1608.3943
 
 ეს validation-ზე უკეთესია წინა safe `SalesLag52` run-ზე (`1633.3693 -> 1615.4495`) და თითქმის იგივე დონეზეა ძველ unsafe validation score-თან, მაგრამ unsafe lag/rolling leakage-ის გარეშე. ამიტომ ამ შედეგს უფრო სანდოდ ვთვლი, ვიდრე ძველ `1573.4988` validation score-ს.
 
+## Final LightGBM training upgrade
+
+უახლესმა FE/FS submission-მა Kaggle-ზე `3500` მიიღო და წინა დაახლოებით `3490` შედეგი ვერ გააუმჯობესა. ანალიზმა აჩვენა, რომ feature engineering უკვე ახლოს იყო XGBoost-თან, ხოლო feature selection შეგნებულად იმავე პრინციპს იყენებდა: importance ილოგებოდა diagnostic-ად, მაგრამ ყველა engineered feature რჩებოდა. მთავარი განსხვავება training/refit flow-ში იყო.
+
+Final notebook-ში გაკეთდა შემდეგი ცვლილებები:
+
+- fixed `100` estimator-ის ნაცვლად დაშვებულია მაქსიმუმ `5000` boosting round;
+- დაემატა `250`-round early stopping და საუკეთესო iteration-ის შენახვა;
+- Optuna search გაიზარდა `100` trial-მდე და გაფართოვდა `num_leaves`, depth, sampling, regularization, `max_bin` და `min_split_gain` პარამეტრებზე;
+- model selection კვლავ validation WMAE-ის მინიმიზაციით ხდება;
+- საუკეთესო configuration validation-ზე არჩევის შემდეგ feature pipeline და LightGBM თავიდან fit-დება ყველა labeled row-ზე;
+- Registry artifact-ში ახლა ინახება full-data refit model და სრული observed training history, რაც Kaggle test-ზე `SalesLag52` coverage-ს ზრდის;
+- WMAE/MAE-ს დაემატა MSE, RMSE, R² და safe MAPE diagnostics.
+
+სამიზნეა Kaggle WMAE-ის `3000`-ზე ქვემოთ ჩამოყვანა და `2800`-თან მიახლოება. ეს არის experiment target და არა წინასწარი გარანტია: რეალური შედეგი მხოლოდ notebook-ის სრულად გაშვებისა და Kaggle submission-ის შემდეგ დადასტურდება.
+
 ## Baseline LightGBM შედეგი
 
 Baseline notebook არის `baseline_lightgbm.ipynb`. მისი მიზანია გვქონდეს მარტივი საწყისი შედეგი, რომელსაც შევადარებთ feature engineering + feature selection + Optuna ექსპერიმენტს.
@@ -159,7 +175,10 @@ validation_dates = np.sort(df_train_merged["Date"].unique())[-VALIDATION_WEEKS:]
 | `Weighted MAE` / `WMAE` | მთავარი validation score და Optuna objective | ემთხვევა competition metric-ს და holiday week-ებს უფრო დიდ წონას აძლევს |
 | `MAE` | დამატებითი validation diagnostic | აჩვენებს საშუალო absolute error-ს ყველა row-ზე თანაბარი წონით |
 | `train_l1` / `validation_l1` | LightGBM training curves/W&B charts | გვაჩვენებს, როგორ მცირდება L1 loss train და validation ეტაპებზე |
-| `RMSE` | ზოგადი diagnostic, საჭიროების შემთხვევაში | დიდ შეცდომებს უფრო მკაცრად სჯის, მაგრამ competition-ის მთავარი metric არ არის |
+| `MSE` | validation diagnostic | squared error-ის საშუალო; დიდ შეცდომებს ძლიერად აჩენს |
+| `RMSE` | validation diagnostic | MSE-ის ფესვი, target-ის ერთეულებში |
+| `R²` | validation diagnostic | გვაჩვენებს, target variance-ის რა ნაწილს ხსნის მოდელი |
+| `MAPE` | validation diagnostic | პროცენტული error; `1.0` epsilon იცავს ნულთან გაყოფისგან |
 
 ### WMAE ფორმულა
 
@@ -212,7 +231,8 @@ RMSE დიდ შეცდომებს უფრო მკაცრად �
 - მთავარი model selection metric არის `Validation Weighted MAE`.
 - `MAE` გამოიყენება როგორც დამატებითი sanity check.
 - `train_l1` და `validation_l1` გამოიყენება learning curve-ების შესაფასებლად.
-- `RMSE` შეიძლება დაგვეხმაროს დიდი შეცდომების აღმოჩენაში, მაგრამ არ არის მთავარი optimization target.
+- `MSE`, `RMSE`, `R²` და `MAPE` დამატებითი diagnostics-ია და Optuna მათზე model-ს არ ირჩევს.
+- `MAPE` Walmart sales-ზე ფრთხილად უნდა წავიკითხოთ, რადგან zero/near-zero და negative sales rows პროცენტულ metric-ს არასტაბილურს ხდის.
 
 ## Feature Engineering
 
@@ -545,7 +565,8 @@ Validation MAE: 1608.3943
 | --- | ---: | ---: | ---: | --- |
 | ძველი unsafe lag/rolling FE | 46 | `1573.4988` | დაახლოებით `6200` | validation leakage-ის გამო ზედმეტად optimistic |
 | პირველი safe `SalesLag52` FE | 42 | `1633.3693` | დაახლოებით `3600` | Kaggle-ზე ბევრად უკეთესი, რადგან feature availability უფრო რეალურია |
-| corrected XGBoost-aligned FE | 49 | `1615.4495` | დაახლოებით `3490` | validation და Kaggle ორივე გაუმჯობესდა წინა safe setup-თან შედარებით |
+| corrected XGBoost-aligned FE | 49 | `1615.4495` | დაახლოებით `3490` | წინა safe setup-თან შედარებით მცირე გაუმჯობესება |
+| უახლესი FE/FS run | — | — | `3500` | წინა `3490` შედეგი ვერ გააუმჯობესა |
 
 ამიტომ ახალი result ძველ unsafe score-ს პირდაპირ არ უნდა შევადაროთ როგორც “worse/better model”, რადგან ძველი `1573.4988` validation leakage-ით იყო გაძლიერებული. სწორი შედარება არის safe setup-თან: `1633.3693 -> 1615.4495`, რაც გაუმჯობესებაა leakage-ის დაბრუნების გარეშე.
 
@@ -840,19 +861,20 @@ Improvement: 17.9198 WMAE
 - numeric interaction-ები tree model-ისთვის უფრო ბუნებრივი split-ებია, ვიდრე string category interaction;
 - raw-input registry pipeline ამცირებს train/test preprocessing mismatch-ის რისკს.
 
-შედარება სამ LightGBM ეტაპს შორის:
+LightGBM ეტაპების შედარება:
 
 | ექსპერიმენტი | Validation WMAE | Kaggle score | შეფასება |
 | --- | ---: | ---: | --- |
 | ძველი unsafe lag/rolling FE | `1573.4988` | დაახლოებით `6200` | validation leakage; test-ზე unreliable |
 | პირველი safe `SalesLag52` FE | `1633.3693` | დაახლოებით `3600` | Kaggle-safe, მაგრამ ჯერ კიდევ არასაკმარისად ძლიერი |
-| corrected XGBoost-aligned FE | `1615.4495` | დაახლოებით `3490` | საუკეთესო reliable LightGBM result ამ ეტაპზე |
+| corrected XGBoost-aligned FE | `1615.4495` | დაახლოებით `3490` | საუკეთესო LightGBM Kaggle result ამ ეტაპზე |
+| უახლესი FE/FS run | არ არის მოწოდებული | `3500` | წინა შედეგი ვერ გააუმჯობესა |
 
-ჩემი შეფასებით, ეს ბოლო result უკვე უკეთესია, რადგან ძველი `1573.4988` score-თან შედარებით leakage არ აქვს, ხოლო წინა safe run-თან შედარებით representation უკეთესია. Kaggle score-იც გაუმჯობესდა `3600`-დან `3490`-მდე, რაც ადასტურებს, რომ XGBoost-ის მსგავს feature representation-ს LightGBM-შიც ჰქონდა რეალური სარგებელი.
+corrected XGBoost-aligned setup validation-ის თვალსაზრისით უფრო სანდოა, რადგან ძველი `1573.4988` score-ისგან განსხვავებით leakage არ აქვს და წინა safe run-ზე უკეთესი WMAE მიიღო. მისმა Kaggle score-მა დაახლოებით `3490` შეადგინა. უახლესმა FE/FS run-მა კი `3500` მიიღო, ანუ წინა საუკეთესო LightGBM შედეგი ვერ გააუმჯობესა და დაახლოებით `10` point-ით გაუარესდა.
 
 ## შენიშვნები და რისკები
 
-მიმდინარე corrected feature engineering-მა validation გააუმჯობესა `1633.3693`-დან `1615.4495`-მდე. Kaggle-ზეც score გაუმჯობესდა `3600`-დან `3490`-მდე. ეს სწორ მიმართულებას აჩვენებს, მაგრამ ჯერ კიდევ ჩამორჩება XGBoost-ის დაახლოებით `2806` score-ს.
+corrected feature engineering-მა validation გააუმჯობესა `1633.3693`-დან `1615.4495`-მდე და Kaggle-ზე დაახლოებით `3490` მიიღო. ამის შემდეგ უახლესმა FE/FS run-მა `3500` აჩვენა, ამიტომ დამატებითმა ცვლილებებმა improvement არ მოიტანა. მოდელი კვლავ მნიშვნელოვნად ჩამორჩება XGBoost-ის `2806` score-ს.
 
 მთავარი დარჩენილი რისკები:
 
@@ -875,6 +897,7 @@ Kaggle score: 3600
 ძველი LightGBM unsafe lag/rolling setup ≈ 6200
 ახალი LightGBM safe SalesLag52 setup ≈ 3600
 corrected XGBoost-aligned LightGBM setup ≈ 3490
+უახლესი LightGBM FE/FS setup = 3500
 XGBoost ≈ 2806
 ```
 
@@ -910,14 +933,24 @@ Safe validation WMAE = 1633.3693
 Corrected validation WMAE = 1615.4495
 ```
 
-ამ უკანასკნელისთვის Kaggle score მივიღეთ:
+corrected XGBoost-aligned run-ისთვის Kaggle score მივიღეთ:
 
 ```text
-Safe Kaggle score = 3600
-Corrected Kaggle score = 3490
+Safe Kaggle score ≈ 3600
+Corrected XGBoost-aligned Kaggle score ≈ 3490
 ```
 
-ანუ corrected feature engineering-მა Kaggle-ზეც გააუმჯობესა შედეგი. improvement არ არის ძალიან დიდი, მაგრამ მიმართულება სწორია: validation WMAE გაუმჯობესდა `17.92`-ით, ხოლო Kaggle score დაახლოებით `110` point-ით. ეს ნიშნავს, რომ `SalesLag52`-ის `NaN` handling, numeric interaction-ები, aggregate count feature-ები და raw-input registry pipeline რეალურად დაეხმარა generalization-ს.
+corrected feature engineering-მა validation WMAE `17.92`-ით გააუმჯობესა და Kaggle score დაახლოებით `3600`-დან `3490`-მდე ჩამოიყვანა. ეს მცირე improvement იყო და `3490` უნდა დარჩეს როგორც წინა LightGBM შედეგი.
+
+ამის შემდეგ ახალი FE/FS ვერსია ცალკე submission-ად შეფასდა:
+
+```text
+Previous corrected Kaggle score ≈ 3490
+New FE/FS Kaggle score = 3500
+Difference = +10 WMAE
+```
+
+რადგან WMAE-ში ნაკლები უკეთესია, `3500` წინა `3490`-ზე დაახლოებით `10` point-ით უარესია. განსხვავება მცირეა, მაგრამ ახალი FE/FS გაუმჯობესებად ვერ ჩაითვლება — შედეგი პრაქტიკულად იგივე დარჩა და საუკეთესო LightGBM Kaggle score კვლავ დაახლოებით `3490` არის.
 
 რატომ ვერ აჯობა XGBoost-ს:
 
@@ -929,4 +962,4 @@ Corrected Kaggle score = 3490
 
 საბოლოო დასკვნა:
 
-LightGBM ძალიან ძლიერი validation model იყო და corrected setup-მა Kaggle-ზეც გააუმჯობესა შედეგი `3600 -> 3490`. მიუხედავად ამისა, XGBoost-ის `2806` score ჯერ კიდევ მნიშვნელოვნად უკეთესია. ამიტომ ამ ეტაპზე LightGBM-ში მთავარი დასკვნა არის: feature engineering-ის გასწორებამ real improvement მოგვცა, მაგრამ model/pipeline ჯერ კიდევ ვერ generalize-დება ისე კარგად, როგორც XGBoost. შემდეგი გაუმჯობესება უნდა იყოს validation split-ის უფრო Kaggle-like გაკეთება, `n_estimators`/early stopping tuning და feature selection-ის გადამოწმება, რადგან შესაძლოა LightGBM-ს test generalization-ისთვის ზოგი feature ზედმეტად aggressive selection-მა დააკლო.
+LightGBM-ის corrected XGBoost-aligned setup-მა დაახლოებით `3490` მიიღო, ხოლო უახლესმა FE/FS run-მა `3500`. შესაბამისად, ახალმა ცვლილებებმა შედეგი ვერ გააუმჯობესა; საუკეთესო LightGBM Kaggle score კვლავ დაახლოებით `3490` რჩება. XGBoost-ის `2806` score მნიშვნელოვნად უკეთესია და validation-test mismatch კვლავ არსებობს. შემდეგი ნაბიჯი უნდა იყოს validation split-ის უფრო Kaggle-like გაკეთება, `n_estimators`/early stopping tuning და feature selection-ის გადამოწმება.
