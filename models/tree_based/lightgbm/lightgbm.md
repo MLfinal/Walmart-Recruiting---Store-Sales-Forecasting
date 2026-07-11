@@ -873,6 +873,7 @@ LightGBM ეტაპების შედარება:
 | პირველი safe `SalesLag52` FE | `1633.3693` | დაახლოებით `3600` | Kaggle-safe, მაგრამ ჯერ კიდევ არასაკმარისად ძლიერი |
 | corrected XGBoost-aligned FE | `1615.4495` | დაახლოებით `3490` | საუკეთესო LightGBM Kaggle result ამ ეტაპზე |
 | უახლესი FE/FS run | არ არის მოწოდებული | `3500` | წინა შედეგი ვერ გააუმჯობესა |
+| final GPU FE/FS + full-data refit | `1575.1545` best-model validation | `2809` | საუკეთესო საბოლოო LightGBM; XGBoost-ის `2806`-თან პრაქტიკულად თანაბარი |
 
 corrected XGBoost-aligned setup validation-ის თვალსაზრისით უფრო სანდოა, რადგან ძველი `1573.4988` score-ისგან განსხვავებით leakage არ აქვს და წინა safe run-ზე უკეთესი WMAE მიიღო. მისმა Kaggle score-მა დაახლოებით `3490` შეადგინა. უახლესმა FE/FS run-მა კი `3500` მიიღო, ანუ წინა საუკეთესო LightGBM შედეგი ვერ გააუმჯობესა და დაახლოებით `10` point-ით გაუარესდა.
 
@@ -966,4 +967,83 @@ Difference = +10 WMAE
 
 საბოლოო დასკვნა:
 
-LightGBM-ის corrected XGBoost-aligned setup-მა დაახლოებით `3490` მიიღო, ხოლო უახლესმა FE/FS run-მა `3500`. შესაბამისად, ახალმა ცვლილებებმა შედეგი ვერ გააუმჯობესა; საუკეთესო LightGBM Kaggle score კვლავ დაახლოებით `3490` რჩება. XGBoost-ის `2806` score მნიშვნელოვნად უკეთესია და validation-test mismatch კვლავ არსებობს. შემდეგი ნაბიჯი უნდა იყოს validation split-ის უფრო Kaggle-like გაკეთება, `n_estimators`/early stopping tuning და feature selection-ის გადამოწმება.
+LightGBM-ის corrected XGBoost-aligned setup-მა დაახლოებით `3490` მიიღო, ხოლო მომდევნო FE/FS run-მა `3500`. ეს შედეგები ისტორიულ შედარებად რჩება. მათ შემდეგ ჩატარებული final GPU FE/FS + full-data refit ექსპერიმენტი ქვემოთ ცალკე არის გაანალიზებული.
+
+## Final GPU FE/FS + full-data refit — Kaggle 2809
+
+ეს არის ბოლო და საუკეთესო LightGBM ექსპერიმენტი. ძველი შედეგები ზემოთ უცვლელად რჩება.
+
+### Training შედეგი
+
+12-წუთიანი Optuna budget-ის გამო დასრულდა 4 trial. საუკეთესო Optuna trial იყო Trial 1:
+
+```text
+Optuna best trial: 1
+Trial validation WMAE: 1567.7045
+Trial validation MAE: 1549.7046
+Trial RMSE: 3362.9864
+Trial R²: 0.976622
+Trial best iteration: 1195
+```
+
+Trial 1-ის hyperparameter-ები:
+
+```python
+{
+    "learning_rate": 0.06940238065869553,
+    "num_leaves": 313,
+    "max_depth": 12,
+    "min_child_samples": 86,
+    "subsample": 0.7812037280884873,
+    "colsample_bytree": 0.7765190684571545,
+    "reg_alpha": 0.0013066739238053278,
+    "reg_lambda": 0.09842315738502598,
+    "min_split_gain": 0.12022300234864176,
+}
+```
+
+არჩეული configuration-ის ხელახლა validation training-ისას early stopping-მა საუკეთესო iteration `844`-ზე იპოვა:
+
+```text
+Best-model validation WMAE: 1575.1545
+Best-model validation MAE: 1552.9994
+MSE: 11356627.5302
+RMSE: 3369.9596
+R²: 0.976525
+MAPE: 541.7714%
+Best boosting iteration: 844
+```
+
+Optuna trial-ის `1567.7045` და best-model retrain-ის `1575.1545` ერთმანეთისგან განსხვავდება stochastic row/feature sampling-ისა და early-stopping trajectory-ის გამო. Final model-ის აღწერისთვის უფრო კონსერვატიულ `1575.1545` retrain metric-ს ვიყენებთ. მაღალი MAPE model selection-ისთვის სასარგებლო არ არის, რადგან dataset-ში zero, near-zero და negative sales პროცენტულ error-ს არასტაბილურს ხდის.
+
+### Kaggle შედეგი და ძველ მოდელებთან შედარება
+
+```text
+Old unsafe lag/rolling LightGBM ≈ 6200
+Safe SalesLag52 LightGBM ≈ 3600
+Corrected XGBoost-aligned LightGBM ≈ 3490
+Previous FE/FS LightGBM = 3500
+Final GPU FE/FS + full-data refit LightGBM = 2809
+XGBoost FE/FS = 2806
+```
+
+| შედარება | WMAE ცვლილება | ფარდობითი გაუმჯობესება |
+| --- | ---: | ---: |
+| `3500 → 2809` | `-691` | `19.74%` |
+| `3490 → 2809` | `-681` | `19.51%` |
+| `3600 → 2809` | `-791` | `21.97%` |
+| `6200 → 2809` | `-3391` | `54.69%` |
+
+XGBoost-ის `2806` და LightGBM-ის `2809` შორის სხვაობა მხოლოდ `3` WMAE-ია (`დაახლოებით 0.11%`). პრაქტიკულად ორივე მოდელი ერთ Kaggle დონეზეა, თუმცა ფორმალურად XGBoost კვლავ 3 point-ით უკეთესია.
+
+### რატომ გახდა ეს LightGBM საუკეთესო
+
+1. **Fixed 100-tree underfitting მოიხსნა.** წინა model მხოლოდ 100 estimator-ს იყენებდა. Final search-ში მოდელს მაქსიმუმ 1200 round და early stopping ჰქონდა, ხოლო საუკეთესო retrain iteration `844` გახდა. მოდელმა საკმარისი boosting capacity მიიღო ზედმეტი round-ების იძულების გარეშე.
+2. **Targeted tuning უკვე ძლიერ parameter region-ში შესრულდა.** Search წინა საუკეთესო configuration-ით დაიწყო და learning rate, leaves, depth, sampling და regularization მის ახლო არეალში გამოიკვლია. მხოლოდ 4 trial-შიც ძლიერი `1567.70` WMAE მოიძებნა.
+3. **Full-data refit გაკეთდა.** Validation-ზე model selection-ის შემდეგ feature pipeline და LightGBM ყველა labeled row-ზე თავიდან გაიწვრთნა. წინა registry model validation split-ზე გაწვრთნილ მდგომარეობას აღარ იყენებს production prediction-ისთვის.
+4. **`SalesLag52`-ს სრული observed history მიეწოდა.** Kaggle test inference-ზე lag lookup უკვე მთელ training history-ს იყენებს, რაც coverage-ს და same-period-last-year signal-ს აძლიერებს.
+5. **FE XGBoost-ს დაუახლოვდა.** Numeric Store–Dept/Type–Dept interactions, time-safe aggregate mean/median/std/count, calendar/holiday/markdown features და safe yearly lag ორივე tree model-ს თითქმის ერთ representation-ს აძლევს.
+6. **Aggressive feature filtering არ გამოყენებულა.** Feature importance diagnostic-ად დარჩა და ყველა engineered feature შევინარჩუნეთ. ამან LightGBM-ს მისცა შესაძლებლობა თავად აერჩია სასარგებლო splits და არ დაეკარგა test generalization-ისთვის საჭირო სუსტი, მაგრამ კომბინაციაში მნიშვნელოვანი signals.
+7. **Training/inference contract გასწორდა.** Registry artifact ერთ bundle-ში ინახავს full-data fitted feature pipeline-ს, selected column order-ს, model-ს, external tables-სა და observed history-ს. ამან preprocessing drift შეამცირა.
+
+მთავარი დასკვნა: local validation-ის გაუმჯობესება (`1615.45 → 1575.15`, დაახლოებით `40.30` WMAE) სასარგებლო იყო, მაგრამ Kaggle-ის დიდი მოგება (`3500 → 2809`) მხოლოდ tuning-ით ვერ აიხსნება. ყველაზე მნიშვნელოვანი მიზეზები იყო full-data refit, სრული history-ით safe `SalesLag52`, ყველა engineered feature-ის შენარჩუნება და Registry inference-ის training flow-სთან გათანაბრება.
