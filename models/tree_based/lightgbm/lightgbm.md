@@ -67,7 +67,9 @@ Final notebook-ში გაკეთდა შემდეგი ცვლი�
 
 - fixed `100` estimator-ის ნაცვლად დაშვებულია მაქსიმუმ `5000` boosting round;
 - დაემატა `250`-round early stopping და საუკეთესო iteration-ის შენახვა;
-- Optuna search გაიზარდა `100` trial-მდე და გაფართოვდა `num_leaves`, depth, sampling, regularization, `max_bin` და `min_split_gain` პარამეტრებზე;
+- Optuna search იყენებს `30` trial-ს, რათა final tuning პრაქტიკულ დროში დასრულდეს;
+- LightGBM training გადაყვანილია GPU-ზე (`device_type="gpu"`), ხოლო GPU-სთვის ეფექტური `max_bin=63` ფიქსირებულია;
+- search გაფართოებულია `num_leaves`, depth, sampling, regularization და `min_split_gain` პარამეტრებზე;
 - model selection კვლავ validation WMAE-ის მინიმიზაციით ხდება;
 - საუკეთესო configuration validation-ზე არჩევის შემდეგ feature pipeline და LightGBM თავიდან fit-დება ყველა labeled row-ზე;
 - Registry artifact-ში ახლა ინახება full-data refit model და სრული observed training history, რაც Kaggle test-ზე `SalesLag52` coverage-ს ზრდის;
