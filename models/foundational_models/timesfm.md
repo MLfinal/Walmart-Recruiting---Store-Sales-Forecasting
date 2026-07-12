@@ -673,3 +673,122 @@ W&B-ზე ინახება epoch-level train/validation WMAE, learning rat
 LoRA training ტექნიკურად წარმატებით შესრულდა და adapter reproducibly შეინახა, მაგრამ model quality მკვეთრად გააუარესა. Corrected calibration-მა უსაფრთხოდ დაიცვა final forecast და LoRA-ს `0%` weight მისცა. ამიტომ v4 ახალი champion არ არის და TimesFM family-ის საუკეთესო მოდელად კვლავ v3 corrected blend `1588.8029` რჩება.
 
 ეს უარყოფითი შედეგიც მნიშვნელოვანი ექსპერიმენტული დასკვნაა: pretrained foundation model-ის parameter-efficient adaptation ავტომატურად გაუმჯობესებას არ ნიშნავს. მოკლე context/horizon-ზე fine-tuning-მა ამ შემთხვევაში TimesFM-ის ძლიერი zero-shot generalization დააზიანა.
+
+## საბოლოო მოდელის არჩევა და pipeline-ის შეფუთვა
+
+LoRA-ს შედეგის შემდეგ საბოლოო pipeline-ის საფუძვლად v3 ავირჩიეთ. ეს არჩევანი მხოლოდ ერთი run-ის მიხედვით არ გაკეთებულა: v3-ს ჰქონდა TimesFM family-ში საუკეთესო final-validation WMAE `1588.8029`, v3.1 audit-მა მისი შედეგი გაიმეორა, ხოლო v4 calibration-მა LoRA-ს `0%` weight მისცა და ისევ ზუსტად v3-ის კომბინაციას დაუბრუნდა.
+
+```text
+SeasonalNaive52       = 0.40
+Raw TimesFM           = 0.05
+Residual TimesFM      = 0.45
+TimesFM + XReg        = 0.10
+LoRA                  = 0.00
+```
+
+ამიტომ pipeline-ში არ შეგვიტანია მხოლოდ ყველაზე ახალი ექსპერიმენტი; შევინახეთ ის მოდელი და კავშირები, რომლებმაც chronological validation-ზე რეალურად საუკეთესო შედეგი აჩვენა.
+
+### რას ნიშნავს ამ შემთხვევაში სრული pipeline
+
+`model_experiment_TimesFM_final_pipeline.ipynb`-ში შევქმენით `TimesFMRawPipeline` კლასი. მისი public contract არის:
+
+```python
+predictions = pipeline.predict(raw_test)
+```
+
+Input არის Kaggle-ის raw `test.csv` ფორმატის DataFrame, ხოლო output — იმავე row order-ში დალაგებული final `Weekly_Sales` prediction. ამ ერთ object-ში ინახება:
+
+- Walmart-ის სრული training history;
+- `features.csv`-ის external covariates და `stores.csv`-ის metadata;
+- Store–Dept series-ის აგების, weekly alignment-ისა და missing-value დამუშავების წესები;
+- `SeasonalNaive52`, raw TimesFM და seasonal-residual TimesFM forecast-ის ლოგიკა;
+- v3-ში გამოყენებული leakage-safe XReg feature engineering;
+- საბოლოო ოთხი blend weight, clipping limits და model configuration;
+- raw rows-ის forecast matrix-იდან საწყის Kaggle row order-ში დაბრუნების ლოგიკა.
+
+XReg-ის dynamic numerical covariates მოიცავს `Temperature`, `Fuel_Price`, `CPI`, `Unemployment` მნიშვნელობებსა და მათ missing indicators-ს, Markdown-ის log-total/missing-count features-ს და calendar sin/cos ნიშნებს. Dynamic categorical ნაწილში შედის holiday/event/week-of-year ინფორმაცია, static ნაწილში კი Store, Dept, Type და Size. Future target ან validation-derived feature pipeline-ში არ შედის.
+
+TimesFM-ის `925 MB` pretrained neural weights pickle-ში ხელახლა არ დუბლირდება. Pipeline ინახავს pinned checkpoint ID-ს — `google/timesfm-2.5-200m-pytorch` — და პირველ inference-ზე ზუსტად ამ checkpoint-ს lazy-load რეჟიმში ტვირთავს. შესაბამისად, W&B artifact შეიცავს Walmart-specific fitted state-სა და სრულ inference orchestration-ს, ხოლო უცვლელი foundation-model weights reproducibly მოდის Hugging Face-დან. პირველი გაშვებისთვის ინტერნეტი საჭიროა; შემდეგ checkpoint Colab/Hugging Face cache-ში რჩება.
+
+### serialization და raw-input contract test
+
+Pipeline artifact-ის ატვირთვამდე notebook სრულ `test.csv`-ზე იძახებს `pipeline.predict(test_raw)`-ს. ეს ტესტი ამოწმებს არა მხოლოდ pickle-ის შექმნას, არამედ იმავე გზას, რომელსაც inference გამოიყენებს: raw schema → feature engineering → სამი TimesFM path → XReg → blend → original row order.
+
+Contract pass-ის შემდეგ notebook:
+
+1. pipeline-ს `walmart_timesfm_v3_raw_pipeline.pkl` ფაილად ინახავს;
+2. pickle-ს თავიდან კითხულობს და metadata-ს ამოწმებს;
+3. წერს manifest-ს configuration-ით, source validation WMAE-ით, runtime-ითა და prediction SHA-256 hash-ით;
+4. W&B artifact-ში ამატებს pipeline pickle-ს, manifest-ს, registry reference-სა და contract predictions-ს;
+5. artifact-ს აკავშირებს `wandb-registry-model/Walmart_TimesFM_Raw_Pipeline` registry collection-თან `champion` და `latest` aliases-ით.
+
+Source experiment-თან კავშირის შესანარჩუნებლად registration run ასევე იყენებს `timesfm-v3-xreg-corrected-calibration:latest` evaluation artifact-ს და config-ში აფიქსირებს champion validation WMAE-ს `1588.8029448973086`.
+
+### contract test-მა აღმოჩენილი integration პრობლემები
+
+Pipeline-ის პირველი Colab contract runs-მა სამი თანმიმდევრული API/shape პრობლემა გამოავლინა. ეს training-ის ან v3 შედეგის შეცდომა არ ყოფილა — პრობლემა ექსპერიმენტის ცალკეულ ფუნქციებში არსებული ლოგიკის reusable class-ში გადატანისას გაჩნდა.
+
+**1. `forecast_with_covariates()`-ს გადაეცა `horizon=`.** TimesFM `2.0.2`-ის `TimesFM_2p5.forecast_with_covariates()` ამ argument-ს არ იღებს; XReg horizon-ს future covariate arrays-ის სიგრძიდან ადგენს. ამიტომ call-იდან `horizon=horizon` ამოვიღეთ.
+
+```text
+TypeError: unexpected keyword argument 'horizon'
+```
+
+**2. model XReg-compatible რეჟიმში არ იყო compiled.** ჩვეულებრივი `forecast()` მუშაობდა, მაგრამ XReg მოითხოვს backcast-ის დაბრუნებასაც. `_load_model()`-ის `ForecastConfig`-ში დავამატეთ:
+
+```python
+return_backcast=True
+```
+
+```text
+ValueError: For XReg, `return_backcast` must be set to True
+```
+
+**3. `return_backcast=True`-ის შემდეგ ordinary forecast-ის shape შეიცვალა.** Raw და residual calls უკვე მხოლოდ `39` future values-ს კი არა, `224` context + `39` future values-ს, სულ `263` columns-ს აბრუნებდა. Seasonal forecast-ის shape იყო `(3169, 39)`, TimesFM output-ის კი `(3169, 263)`, რის გამოც blend-მდე residual reconstruction ვერ შესრულდა.
+
+```text
+ValueError: operands could not be broadcast together with shapes (3169,39) (3169,263)
+```
+
+გამოსწორებისას raw, residual და XReg arrays point-forecast ფორმატში გადავიყვანეთ და მხოლოდ ბოლო horizon columns დავტოვეთ:
+
+```python
+forecast = forecast[:, -horizon:]
+```
+
+ამის გარდა blend-მდე დავამატეთ explicit shape contract. `seasonal`, `raw`, `residual` და `xreg` ოთხივე component-ის მოსალოდნელი shape არის `(series_count, horizon)`; შეუსაბამობისას pipeline ახლა ყველა მიღებულ shape-ს ერთ მკაფიო error-ში აჩვენებს. ამით ჩუმი broadcasting ან არასწორი row mapping აღარ დაიშვება.
+
+ეს debugging sequence მნიშვნელოვანი იყო, რადგან მხოლოდ pickle-ის წარმატებით შექმნა pipeline-ის სისწორეს ვერ დაადასტურებდა. Full raw-input execution-მა გვაჩვენა, რომ model loading, compile configuration, XReg API და output semantics ერთ reproducible inference contract-ში ნამდვილად უნდა ემთხვეოდეს.
+
+### წარმატებული final contract და W&B Registry registration
+
+სამივე შესწორების შემდეგ notebook თავიდან გავუშვით და complete raw-input contract წარმატებით დასრულდა:
+
+```text
+raw test rows          = 115,064
+Store–Dept series      = 3,169
+stored history rows    = 421,570
+stored features rows   = 8,190
+contract runtime       = 1.465 წუთი
+pipeline size          = 13.984 MB
+prediction minimum     = 0.0
+prediction mean        = 16,563.8952
+prediction maximum     = 293,424.1790
+prediction SHA-256     = 97529caaa57ed8334c3eaf7e9cdf1f7a95d0bb4efee4c09166433bf02a9dfefe
+```
+
+Pipeline pickle-ის reload metadata ზუსტად დაემთხვა original object-ს. Contract-მა ყველა `115,064` raw test row-ზე finite prediction დააბრუნა, სწორი row count შეინარჩუნა და output range clipping limits-ში დატოვა. ამის შემდეგ model artifact წარმატებით აიტვირთა და Registry-ს დაუკავშირდა:
+
+```text
+W&B run name      = timesfm_v3_raw_pipeline_registration
+W&B run id        = j1cbzk3d
+artifact name     = timesfm-v3-raw-input-pipeline
+registry target   = wandb-registry-model/Walmart_TimesFM_Raw_Pipeline
+registry URI      = wandb-registry-model/Walmart_TimesFM_Raw_Pipeline:champion
+aliases           = champion, latest
+registered        = True
+```
+
+Registration run-ში ლოგირდება pipeline size/runtime, verified row count, prediction range და hash, raw-input contract status, champion validation WMAE `1588.8029`, manifest, registry reference, contract predictions და serialized pipeline. Source evaluation artifact-თან lineage-იც შენარჩუნებულია: `timesfm-v3-xreg-corrected-calibration:latest` → registered v3 raw pipeline.
+
+ამ ეტაპზე TimesFM-ის training-to-inference ჯაჭვი დასრულებულია: v3 experiment-მა აირჩია საუკეთესო forecast composition, v3.1-მა selection შეამოწმა, v4-მა LoRA უარყო, final packaging run-მა კი champion-ის მთლიანი raw-data processing და prediction flow ერთ Registry model-ში შეინახა. დამოუკიდებელ inference notebook-ს აღარ სჭირდება feature engineering-ის ხელახლა დაწერა — იგი Registry-დან იღებს `:champion` pipeline-ს და raw `test.csv`-ზე პირდაპირ `predict()`-ს იძახებს.
