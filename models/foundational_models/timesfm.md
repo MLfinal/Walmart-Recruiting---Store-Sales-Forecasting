@@ -792,3 +792,87 @@ registered        = True
 Registration run-ში ლოგირდება pipeline size/runtime, verified row count, prediction range და hash, raw-input contract status, champion validation WMAE `1588.8029`, manifest, registry reference, contract predictions და serialized pipeline. Source evaluation artifact-თან lineage-იც შენარჩუნებულია: `timesfm-v3-xreg-corrected-calibration:latest` → registered v3 raw pipeline.
 
 ამ ეტაპზე TimesFM-ის training-to-inference ჯაჭვი დასრულებულია: v3 experiment-მა აირჩია საუკეთესო forecast composition, v3.1-მა selection შეამოწმა, v4-მა LoRA უარყო, final packaging run-მა კი champion-ის მთლიანი raw-data processing და prediction flow ერთ Registry model-ში შეინახა. დამოუკიდებელ inference notebook-ს აღარ სჭირდება feature engineering-ის ხელახლა დაწერა — იგი Registry-დან იღებს `:champion` pipeline-ს და raw `test.csv`-ზე პირდაპირ `predict()`-ს იძახებს.
+
+## საბოლოო inference — Registry champion-იდან submission-მდე
+
+`timesfm_inference.ipynb` არის დამოუკიდებელი inference notebook. იგი experiment notebook-ს, local checkpoint-ს ან წინასწარ დამუშავებულ feature table-ს არ იყენებს. Notebook-ის flow არის:
+
+```text
+raw test.csv
+→ W&B Registry: Walmart_TimesFM_Raw_Pipeline:champion
+→ cloudpickle pipeline load
+→ pipeline.predict(test_raw)
+→ validation + Kaggle schema check
+→ submission CSV + manifest
+→ W&B prediction artifact
+```
+
+Notebook თავიდან მხოლოდ `test.csv`-ს კითხულობს და ამოწმებს raw schema-ს: `Store`, `Dept`, `Date`, `IsHoliday`. შემდეგ W&B run-ში `use_artifact()`-ით იღებს Registry champion-ს. Downloaded object-ის type აუცილებლად `TimesFMRawPipeline` უნდა იყოს; feature engineering-ის, history matrix-ის, XReg covariates-ის ან blending-ის კოდი inference notebook-ში ხელახლა არ იწერება.
+
+Registry-დან რეალურად ჩაიტვირთა:
+
+```text
+resolved artifact      = Walmart_TimesFM_Raw_Pipeline:champion
+pipeline type          = TimesFMRawPipeline
+model checkpoint       = google/timesfm-2.5-200m-pytorch
+stored history rows    = 421,570
+stored feature rows    = 8,190
+seasonal period        = 52
+xreg mode              = timesfm + xreg
+weights                = 0.40 seasonal / 0.05 raw / 0.45 residual / 0.10 xreg
+```
+
+ეს output ადასტურებს, რომ inference-მ ნამდვილად Registry model გამოიყენა და არა შემთხვევით დარჩენილი local object.
+
+### inference run-ის შედეგი
+
+```text
+W&B run name          = timesfm_v3_champion_registry_inference
+W&B run id            = nyqjuuwe
+raw test rows         = 115,064
+prediction runtime    = 29.703 წუთი
+prediction minimum    = 0.0
+prediction mean       = 16,563.8942
+prediction maximum    = 293,424.1742
+zero predictions      = 97
+all values finite     = True
+prediction SHA-256    = 0e09858d9ae377569318d3e80a85ae088fc937cb493640f444ce7123115788b7
+```
+
+Fresh inference runtime registration contract-ზე გრძელი იყო, რადგან ამ run-ში Registry-დან ახლად ჩატვირთულ pipeline-ს pretrained `925 MB` TimesFM checkpoint-ის initialization და სრული raw/residual/XReg execution დასჭირდა. Registration contract-ის `1.465` წუთი უკვე warm Colab process/cache-ზე გაიზომა, ამიტომ ეს ორი დრო სხვადასხვა runtime state-ს აღწერს და პირდაპირ model-speed comparison არ არის.
+
+Inference prediction hash registration contract-ის hash-ს byte-level-ზე არ დაემთხვა. მიუხედავად ამისა, row count და range იგივეა, mean მხოლოდ დაახლოებით `0.0011`-ით, maximum კი დაახლოებით `0.0048`-ით განსხვავდება. ეს GPU/linear-solver floating-point execution-ის ძალიან მცირე numerical variation-ია და არა სხვა pipeline/configuration-ის გამოყენება. Registry metadata, component weights, input rows და output order უცვლელი დარჩა.
+
+### submission validation და W&B logging
+
+Prediction-ის შემდეგ notebook-მა Kaggle ID ააგო `Store_Dept_Date` ფორმატით და, ხელმისაწვდომობის შემთხვევაში, ყველა ID და row order `sampleSubmission.csv`-ს შეადარა. Duplicate ID, row-count mismatch და non-finite prediction არ აღმოჩნდა. საბოლოო ფაილი წარმატებით შეიქმნა:
+
+```text
+/content/drive/MyDrive/walmart_competition_inference/timesfm/timesfm_v3_champion_submission.csv
+rows = 115,064
+```
+
+Inference logging cell-ში W&B-ზე იგზავნება prediction distribution histogram, პირველი `1,000` row-ის preview table, runtime, min/mean/max, zero count, prediction hash, resolved Registry artifact, submission CSV და JSON manifest. Prediction artifact-ის სახელია `timesfm-v3-champion-inference`, aliases — `latest` და `champion-pipeline`. ამგვარად lineage სრულად იკითხება:
+
+```text
+v3 evaluation artifact
+→ registered raw-input champion pipeline
+→ inference run nyqjuuwe
+→ submission prediction artifact
+```
+
+### Kaggle upload-ის შედეგი
+
+CSV-ის შექმნა და model inference წარმატებული იყო, მაგრამ optional Kaggle CLI upload ამ Colab runtime-ში authentication-ის არქონის გამო ვერ შესრულდა:
+
+```text
+You must authenticate before you can call the Kaggle API.
+```
+
+ეს forecast-ის ან pipeline-ის failure არ არის; submission CSV უკვე Google Drive-ში სწორად იყო შენახული. თავდაპირველ final cell-ში ამ auxiliary upload failure-ზე `RuntimeError` ჩნდებოდა და `run.finish()`-მდე execution წყდებოდა. Finalized notebook-ში ეს flow გავასწორეთ: Kaggle failure ინახება W&B summary-ში როგორც `kaggle/submitted=False` და error text, მაგრამ valid inference output არ იკარგება, W&B run ყოველთვის იხურება და `inference_complete=True` იბეჭდება. Kaggle upload შეგვიძლია ცალკე, credentials-ის გამართვის შემდეგ, უკვე შექმნილი CSV-ით შევასრულოთ.
+
+## TimesFM-ის საბოლოო შედეგი
+
+TimesFM-ის საუკეთესო შეფასება დარჩა v3 corrected blend WMAE `1588.8029`. Raw zero-shot-თან შედარებით blend-მა seasonal structure, residual dynamics და მცირე XReg contribution გააერთიანა; v3.1 audit-მა XReg-ის რეალური, თუმცა დროში არასტაბილური სარგებელი აჩვენა; LoRA-მ generalization მკვეთრად გააუარესა და calibration-მა იგი სწორად გამორიცხა.
+
+საბოლოოდ გვაქვს არა მხოლოდ საუკეთესო validation prediction, არამედ სრული reproducible lifecycle: გაშვებული ექსპერიმენტები და diagnostics, W&B artifacts, audited champion selection, raw-input pipeline, W&B Model Registry registration და Registry-დან შესრულებული დამოუკიდებელი inference. TimesFM-ის model family ამ ეტაპზე დასრულებულია.
