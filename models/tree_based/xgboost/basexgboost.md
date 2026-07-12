@@ -1192,3 +1192,7 @@ Colab-ში შეიქმნა:
 ```
 
 `/content` დროებითი storage-ია და runtime-ის წაშლისას ქრება. მიმდინარე გაშვებაში model/submission W&B artifact-ადაც აიტვირთა, ამიტომ მათი აღდგენა W&B-დან შეიძლება.
+
+## Baseline-იდან საბოლოო მოდელამდე — აუდიტირებული შეჯამება
+
+Baseline-მა დაადასტურა global XGBoost flow და მიიღო `2902.2892` validation WMAE. შემდეგ engineered notebook-მა დაამატა leakage-safe `SalesLag52`, target aggregates, holiday proximity, markdown interactions, tuning და full-data refit. საბოლოო `2806` Kaggle score baseline notebook-ის score არ არის; ის განვითარებული Registry pipeline-ის შედეგია. ამიტომ baseline გამოიყენება reference-ად, ხოლო engineered XGBoost — champion-ად.

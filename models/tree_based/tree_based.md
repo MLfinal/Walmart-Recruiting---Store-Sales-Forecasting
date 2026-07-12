@@ -493,3 +493,14 @@ Final LightGBM-მა Kaggle-ზე `2809` მიიღო და XGBoost-ის
 - **Best reliable LightGBM validation:** `1575.15` retrain WMAE (`1567.70` Optuna trial best).
 - **Common winning idea:** historical aggregates + yearly lag + holiday-aware features.
 - **Production requirement:** W&B Registry artifact უნდა იყოს inference-ის წყარო, არა ხელით გადაწერილი preprocessing.
+
+## გაერთიანებული არქიტექტურული აუდიტი
+
+Tree-based flow იყო: raw ოთხი ცხრილი → leakage-safe merge → calendar/holiday/store/markdown features → ქრონოლოგიური holdout → holiday-weighted training/WMAE → full-data refit → raw-input Registry pipeline → Kaggle submission. XGBoost და LightGBM ერთსა და იმავე tabular იდეას იყენებენ, მაგრამ boosting implementation და regularization განსხვავდება.
+
+| მოდელი | სანდო local WMAE | Kaggle score | დასკვნა |
+|---|---:|---:|---|
+| XGBoost | `1612.1265` | **`2806`** | ოჯახის champion |
+| LightGBM | `1575.1545` final retrain (`1567.7045` best trial) | `2809` | მხოლოდ 3 point-ით ჩამორჩა |
+
+Local WMAE-ს მიხედვით LightGBM უკეთ ჩანს, მაგრამ Kaggle-ის საბოლოო კრიტერიუმით XGBoost `3` point-ით უკეთესია. ამიტომ tree-based და მთლიან პროექტშიც XGBoost არის საუკეთესო დადასტურებული submission.

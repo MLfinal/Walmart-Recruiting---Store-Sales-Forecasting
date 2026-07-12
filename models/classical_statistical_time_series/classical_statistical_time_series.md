@@ -136,3 +136,16 @@ Prophet-ის pipeline registration run არის `rlm39vch`; raw registry i
 ამ სამმა მიმართულებამ განსხვავებული ცოდნა მოგვცა. ARIMA-მ გვაჩვენა, რომ order tuning aggregate forecast-ს მცირე გაუმჯობესებას აძლევს, მაგრამ allocation bottleneck რჩება. SARIMA-მ დაადასტურა, რომ მხოლოდ სახელის შეცვლა seasonality-ს არ ამატებს: seasonal order უნდა იყოს რეალურად ჩართული. ARIMAX/SARIMAX-მ გვასწავლა, რომ covariate-ის ღირებულება მისი granularity-სა და forecasting representation-ზეა დამოკიდებული.
 
 Prophet v4-მა კი დაადასტურა, რომ ამ dataset-ისთვის ყველაზე ეფექტური classical recipe არის per-series modeling, წინასწარ ცნობილი event calendar და ძლიერი 52-week seasonal reference-ის blend. მიუხედავად ამისა, ეს family უფრო interpretable statistical benchmark-ია, ვიდრე პროექტის საერთო საუკეთესო მოდელი: tree-based და შესაბამისი deep-learning მიდგომები Store/Dept/features-ის ურთიერთქმედებებს უფრო პირდაპირ სწავლობენ.
+
+## ოჯახის საბოლოო აუდიტი
+
+საერთო flow: weekly series/aggregate construction → ბოლო 39 კვირის holdout → order/event search → aggregate-to-row allocation ან per-series fitting → WMAE → full-history refit → Registry pipeline → submission.
+
+| მოდელი | საუკეთესო local WMAE | Kaggle score | შეფასება |
+|---|---:|---:|---|
+| Prophet v4 | **`1367.4470`** | არ არის დაფიქსირებული | local champion, leaderboard winner ვერ ეწოდება |
+| ARIMA | `1829.8800` | არ არის დაფიქსირებული | last-year share საუკეთესო allocation იყო |
+| SARIMA | `1831.6176` | `3842` | aggregate limitation |
+| ARIMAX/SARIMAX | `2563.6915` | **`3525` SARIMAX** | external regressors Kaggle-ზე დაეხმარა |
+
+Classical ოჯახის საუკეთესო დადასტურებული Kaggle შედეგია SARIMAX `3525`; საუკეთესო local WMAE Prophet-ს აქვს, მაგრამ leaderboard score დოკუმენტაციაში არ არის.

@@ -8,6 +8,18 @@ models/deep_learning/N-BEATS
 models/deep_learning/tft
 ```
 
+## ოჯახის საბოლოო აუდიტი
+
+Deep-learning flow: Store–Dept panel/sequence construction → historical context → multi-step horizon → holiday-aware loss/WMAE → early stopping/tuning → full refit/checkpoint → Registry/fallback inference → Kaggle submission.
+
+| მოდელი | საუკეთესო local WMAE | Kaggle score | შეფასება |
+|---|---:|---:|---|
+| DLinear | **`1506.2825`** | დაახლოებით `3500` | საუკეთესო local DL |
+| N-BEATS | `2157.98` documented champion / `2224.12` latest selected run | დაახლოებით `4700` | ყველაზე სუსტი transfer |
+| TFT residual blend | `2379.5014` top-2000 subset | public `2979.86060`, private **`3058.98280`** | საუკეთესო DL Kaggle |
+
+Validation universes განსხვავდება, ამიტომ local ციფრები სრულად apples-to-apples არაა. Kaggle ranking-ით TFT საუკეთესო deep-learning submission-ია, მაგრამ მისი rows-ის `32.87%` seasonal fallback-ია.
+
 სამივე მოდელის საერთო მიზანი ერთი იყო: Walmart Store Sales Forecasting ამოცანაზე historical weekly sales-იდან future horizon-ის პროგნოზი დაგვეგენერირებინა და შედეგები W&B-ზე სრულად დაგველოგა. DLinear/TFT-ში ძირითადი validation horizon იყო `39` კვირა, ხოლო N-BEATS-ის README-ში მთავარი validation setup `32` კვირაზეა აღწერილი. ამიტომ მათი ლოგიკა, data format, feature usage და საბოლოო ქცევა მნიშვნელოვნად განსხვავდება.
 
 ## მოკლე დასკვნა

@@ -1113,3 +1113,9 @@ XGBoost-ის `2806` და LightGBM-ის `2809` შორის სხვა
 7. **Training/inference contract გასწორდა.** Registry artifact ერთ bundle-ში ინახავს full-data fitted feature pipeline-ს, selected column order-ს, model-ს, external tables-სა და observed history-ს. ამან preprocessing drift შეამცირა.
 
 მთავარი დასკვნა: local validation-ის გაუმჯობესება (`1615.45 → 1575.15`, დაახლოებით `40.30` WMAE) სასარგებლო იყო, მაგრამ Kaggle-ის დიდი მოგება (`3500 → 2809`) მხოლოდ tuning-ით ვერ აიხსნება. ყველაზე მნიშვნელოვანი მიზეზები იყო full-data refit, სრული history-ით safe `SalesLag52`, ყველა engineered feature-ის შენარჩუნება და Registry inference-ის training flow-სთან გათანაბრება.
+
+## საბოლოო აუდიტირებული შეჯამება
+
+LightGBM არის leaf-wise gradient boosting architecture. Flow: raw data merge → safe feature engineering → chronological validation → WMAE objective/selection → targeted tuning → full-data refit → Registry pipeline → Kaggle. Unsafe short lags თავდაპირველად optimistic validation-ს ქმნიდა; საბოლოო flow მხოლოდ test-time ხელმისაწვდომ features-ს იყენებს.
+
+Best trial WMAE იყო `1567.7045`, final retrain validation WMAE `1575.1545`, ხოლო Kaggle score **`2809`**. XGBoost-ის `2806`-თან სხვაობა მხოლოდ `3` point-ია, ამიტომ LightGBM პრაქტიკულად თანაბარი runner-up-ია, მაგრამ ფორმალური champion არაა.

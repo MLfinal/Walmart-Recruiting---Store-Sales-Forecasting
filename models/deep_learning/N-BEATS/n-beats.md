@@ -668,3 +668,7 @@ N-BEATS ყველაზე სუსტი გამოვიდა ამ �
 საბოლოო დასკვნა:
 
 N-BEATS კარგი baseline იყო deep learning ექსპერიმენტისთვის, მაგრამ final model candidate-ად არ ავირჩევდი. მისი Kaggle score აჩვენებს, რომ ამ ამოცანაში feature-rich tree-based approach უფრო საიმედოა.
+
+## საბოლოო აუდიტირებული შეჯამება
+
+N-BEATS historical sales window-ს fully connected residual blocks-ით ამუშავებს; backcast/forecast decomposition განმეორებით აშორებს ახსნილ signal-ს. Flow: Store–Dept sequences → normalized context → block stacks → weighted L1 → early stopping/Optuna → checkpoint → fallback-aware inference. Documented საუკეთესო validation დაახლოებით `2157.98` იყო, latest selected run `2224.1179`, Kaggle დაახლოებით `4700`. იგი DLinear-სა და TFT-ს ჩამორჩა და საბოლოო კანდიდატი არ არის.
