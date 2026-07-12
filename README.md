@@ -1059,9 +1059,14 @@ Raw `test.csv`-ზე `115064` prediction შექმნა.
 
 Fresh inference დაახლოებით `29.70` წუთი გაგრძელდა.
 
-Submission Kaggle-ზე აიტვირთა, თუმცა leaderboard score README evidence-ში არ არის ჩაწერილი.
+Submission Kaggle-ზე აიტვირთა და `Complete (after deadline)` სტატუსით შეფასდა:
 
-TimesFM-ის სტატუსია foundation local champion და არა overall Kaggle champion.
+```text
+public  = 2742.68603
+private = 2853.40612
+```
+
+TimesFM public score tree models-ის recorded scores-ზე დაბალია, private score კი XGBoost/LightGBM-ზე მაღალია. ამიტომ იგი foundation champion და private/final ranking-ში მესამე საუკეთესო მოდელია, მაგრამ overall private champion კვლავ XGBoost-ია.
 
 ## Hybrid — XGBoost + SARIMA
 
@@ -1154,13 +1159,14 @@ Hybrid-საც თავისი split/representation ჰქონდა.
 | ---: | --- | ---: | --- |
 | 1 | XGBoost | **`2806`** | overall champion |
 | 2 | LightGBM | `2809` | მხოლოდ 3 point სხვაობა |
-| 3 | TFT | `3058.98280` private | deep-learning champion |
-| 4 | DLinear | ≈`3500` | local-to-test gap |
-| 5 | SARIMAX | `3525` | classical scored champion |
-| 6 | SARIMA | `3842` | aggregate seasonal model |
-| 7 | N-BEATS | ≈`4700` | weakest recorded transfer |
+| 3 | TimesFM v3 | **`2853.40612` private** (`2742.68603` public) | best non-tree/private foundation result |
+| 4 | TFT | `3058.98280` private | deep-learning champion |
+| 5 | DLinear | ≈`3500` | local-to-test gap |
+| 6 | SARIMAX | `3525` | classical scored champion |
+| 7 | SARIMA | `3842` | aggregate seasonal model |
+| 8 | N-BEATS | ≈`4700` | weakest recorded transfer |
 
-TimesFM submission ატვირთულია, მაგრამ exact leaderboard score ამ repository documentation-ში არ არის დაფიქსირებული.
+TimesFM-ის public `2742.68603` ორივე tree model-ის recorded score-ზე უკეთესია, მაგრამ private `2853.40612` XGBoost-ის `2806` და LightGBM-ის `2809` შედეგებს ჩამორჩება. Final ranking private/final score-ს ეყრდნობა.
 
 Prophet-ის upload/inference documented არის, მაგრამ leaderboard score არ გვაქვს.
 
@@ -1568,7 +1574,7 @@ Noise correction performance-ს აუარესებს.
 | Deep learning | TFT | private Kaggle `3058.9828` |
 | Classical local | Prophet | best local `1367.4470` |
 | Classical scored | SARIMAX | Kaggle `3525` |
-| Foundation | TimesFM v3 | audited local `1588.8029` |
+| Foundation | TimesFM v3 | local `1588.8029`; public `2742.68603`; private `2853.40612` |
 | Hybrid | არ ავირჩიეთ | baseline ვერ გაუმჯობესდა |
 
 ## Overall champion
@@ -1731,6 +1737,8 @@ TFT `3058.9828` საუკეთესო deep-learning submission-ია.
 Prophet `1367.4470` საუკეთესო documented local WMAE-ს აჩვენებს, მაგრამ Kaggle score-ის გარეშე overall winner ვერ არის.
 
 TimesFM v3 `1588.8029` ძლიერი audited foundation candidate-ია.
+
+მისმა Registry champion submission-მა public `2742.68603` და private `2853.40612` მიიღო, რაც მას საუკეთესო non-tree private/final submission-ად აქცევს.
 
 საბოლოო ღირებულება მხოლოდ score არ არის.
 

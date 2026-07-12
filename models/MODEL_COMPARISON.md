@@ -497,8 +497,8 @@ Training მიჰყვება ზემოთ აღწერილ ერ�
 |---|---|
 | Baseline/local reference | 1672.2525 zero-shot |
 | საუკეთესო local result | 1588.8029 v3 |
-| Kaggle result | არ არის დაფიქსირებული |
-| საბოლოო სტატუსი | Foundation local champion |
+| Kaggle result | public `2742.68603`; private `2853.40612` |
+| საბოლოო სტატუსი | Foundation champion; third private/final overall |
 
 ### რატომ იმუშავა
 
@@ -506,11 +506,11 @@ Task-specific training-ის გარეშე ძლიერი forecast დ
 
 ### მთავარი შეზღუდვა
 
-Standalone XReg/LoRA unstable იყო; final Kaggle evidence არ არსებობს.
+Standalone XReg/LoRA unstable იყო; private score tree champions-ს ჩამორჩება.
 
 ### ანალიტიკური დასკვნა
 
-TimesFM-ის არჩევა ან უარყოფა ეფუძნება არა მხოლოდ local WMAE-ს, არამედ Kaggle evidence-ს, feature availability-სა და inference reproducibility-ს. საბოლოო სტატუსი: **Foundation local champion**.
+TimesFM-ის არჩევა ან უარყოფა ეფუძნება არა მხოლოდ local WMAE-ს, არამედ Kaggle evidence-ს, feature availability-სა და inference reproducibility-ს. საბოლოო სტატუსი: **Foundation champion და საუკეთესო non-tree private/final submission**.
 
 ## 5. Tree-based მოდელების ერთმანეთთან შედარება
 
@@ -574,7 +574,7 @@ TimesFM-ის არჩევა ან უარყოფა ეფუძნ�
 - XReg standalone სუსტი იყო, მაგრამ 10% complementary contribution სასარგებლო აღმოჩნდა.
 - Audit-მა clipping inconsistency გამოასწორა და v3 gain-ის წყარო დაადასტურა.
 - LoRA overfit/scale failure იყო; safe selection-მა მას weight 0 მისცა.
-- Kaggle score-ის გარეშე TimesFM overall champion ვერ გახდება.
+- Kaggle public `2742.68603` tree models-ის recorded scores-ზე უკეთესია, private `2853.40612` კი XGBoost/LightGBM-ს ჩამორჩება.
 
 ## 9. Local WMAE და Kaggle score რატომ განსხვავდება
 
@@ -595,18 +595,18 @@ TimesFM-ის არჩევა ან უარყოფა ეფუძნ�
 |---|---|---|---|
 | 1 | XGBoost | 2806 | overall champion |
 | 2 | LightGBM | 2809 | 3 point behind |
-| 3 | TFT | 3058.98280 private | best deep learning |
-| 4 | DLinear | ≈3500 | local DL champion |
-| 5 | SARIMAX | 3525 | best scored classical |
-| 6 | SARIMA | 3842 | aggregate seasonal |
-| 7 | N-BEATS | ≈4700 | weakest recorded |
+| 3 | TimesFM v3 | 2853.40612 private; 2742.68603 public | best non-tree/private foundation |
+| 4 | TFT | 3058.98280 private | best deep learning |
+| 5 | DLinear | ≈3500 | local DL champion |
+| 6 | SARIMAX | 3525 | best scored classical |
+| 7 | SARIMA | 3842 | aggregate seasonal |
+| 8 | N-BEATS | ≈4700 | weakest recorded |
 
 ## 11. მოდელები leaderboard score-ის გარეშე
 
 | მოდელი | საუკეთესო local WMAE | რატომ არ შედის Kaggle ranking-ში |
 |---|---|---|
 | Prophet v4 | 1367.4470 | upload/registry documented, score არა |
-| TimesFM v3 | 1588.8029 | validation evidence only |
 | ARIMA | 1829.8800 | submission path exists, score არა |
 
 ## 12. რატომ არის XGBoost საუკეთესო
@@ -634,7 +634,7 @@ TimesFM-ის არჩევა ან უარყოფა ეფუძნ�
 | Classical local | Prophet v4 | local 1367.4470 | Kaggle score აკლია |
 | Classical Kaggle | SARIMAX | Kaggle 3525 | local validation სუსტია |
 | Deep learning | TFT | private 3058.98280 | 32.87% fallback |
-| Foundation | TimesFM v3 | local 1588.8029 | Kaggle score აკლია |
+| Foundation | TimesFM v3 | local 1588.8029; private 2853.40612 | best non-tree private result |
 | Overall | XGBoost | lowest recorded Kaggle WMAE | final champion |
 
 ## 14. Reproducibility checklist
@@ -675,7 +675,7 @@ TimesFM-ის არჩევა ან უარყოფა ეფუძნ�
 
 1. XGBoost/LightGBM prediction blending მხოლოდ identical Kaggle-safe pipeline-ებით.
 2. Holiday-specific blend weights rolling-origin validation-ზე.
-3. Prophet/TimesFM submission score-ის რეალურად დაფიქსირება.
+3. Prophet submission score-ის რეალურად დაფიქსირება.
 4. Unified 39-week evaluator ყველა family-ზე.
 5. ერთიანი Store–Dept coverage და fallback policy.
 6. OOF prediction correlation analysis ensemble diversity-სთვის.
@@ -690,6 +690,6 @@ Local validation-ის მიხედვით სხვადასხვა 
 
 Actual Kaggle submission-ებს შორის ყველაზე დაბალი score არის XGBoost-ის 2806. LightGBM 2809-ით პრაქტიკულად თანაბარია, მაგრამ ფორმალურად მეორე ადგილზეა.
 
-TFT საუკეთესო deep-learning submission-ია; Prophet საუკეთესო classical local model-ია; SARIMAX საუკეთესო scored classical submission-ია; TimesFM v3 საუკეთესო foundation local configuration-ია.
+TFT საუკეთესო deep-learning submission-ია; Prophet საუკეთესო classical local model-ია; SARIMAX საუკეთესო scored classical submission-ია; TimesFM v3 საუკეთესო foundation model და private/final ranking-ში მესამეა (`2853.40612`).
 
 პროექტის საბოლოო champion არის XGBoost, რადგან მას აქვს საუკეთესო external evidence, leakage-safe feature contract და reproducible raw-input Registry pipeline.
