@@ -4,6 +4,8 @@
 
 ამოცანა არის supervised forecasting: თითოეული ჩანაწერი აღწერს კონკრეტული `Store` + `Dept` წყვილის გაყიდვებს კონკრეტულ კვირაში. სამიზნე ცვლადია `Weekly_Sales`.
 
+სრული interactive W&B ანგარიში, live training panels-ით, tuning diagnostics-ითა და cross-model graphics-ით: [Walmart Store Sales Forecasting — სრული მოდელური კვლევა](https://wandb.ai/kende23-n-a/Walmart-Recruiting---Store-Sales-Forecasting/reports/Walmart-Store-Sales-Forecasting-%E1%83%A1%E1%83%A0%E1%83%A3%E1%83%9A%E1%83%98-%E1%83%9B%E1%83%9D%E1%83%93%E1%83%94%E1%83%9A%E1%83%A3%E1%83%A0%E1%83%98-%E1%83%99%E1%83%95%E1%83%9A%E1%83%94%E1%83%95%E1%83%90--VmlldzoxNzQ4MDExOQ).
+
 ## მონაცემები
 
 გამოყენებულია ოთხი ძირითადი ფაილი:
