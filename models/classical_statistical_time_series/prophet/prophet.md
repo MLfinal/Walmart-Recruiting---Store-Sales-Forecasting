@@ -510,3 +510,7 @@ status = working, reproducible baseline; not stronger than seasonal naive
 მან დაადასტურა, რომ per-series classical forecasting და W&B logging სწორად მუშაობს. Direct baseline Prophet-ის `1625.48` WMAE-მ აჩვენა, რომ trend/yearly seasonality/holiday component მარტო ვერ ჯობდა Walmart-ის ძლიერი კონკრეტული-კვირა-წინა-წლის signal-ს. v3 blend-მა ეს `1402.26`-მდე ჩამოიყვანა, v4 event-aware holiday engineering-მა `1367.45`-მდე გააუმჯობესა, v5 external covariates-მა გააუარესა, ხოლო v6 historical tuning-მა v4-ის alpha არჩევანი თითქმის დაადასტურა. Prophet family-ის champion რჩება v4.
 
 External-covariate v1-მა კი დაადასტურა, რომ feature imputation დროით უნდა შემოწმდეს: მომავალიდან backward fill არ შეიძლება. ამიტომ v1-ის მაღალი WMAE model-performance conclusion არ არის; ის არის მონაცემის მომზადების შეცდომის დაფიქსირებული შედეგი.
+
+## საბოლოო აუდიტირებული შეჯამება
+
+Prophet per-series additive architecture-აა: trend + weekly/yearly seasonality + explicit Walmart holiday events. Flow: eligible Store–Dept selection → chronological 39-week split → one Prophet per series → 52-week seasonal fallback → calibrated blend → WMAE → full-history JSON models/raw pipeline. Baseline იყო `1625.4781`; v4 event-aware 50/50 blend გახდა local champion `1367.4470`; v6 `1373.0902` იყო და v4 ვერ გააუმჯობესა. Kaggle upload შესრულდა, მაგრამ leaderboard score დოკუმენტაციაში არ არის, ამიტომ Prophet მხოლოდ local-validation champion-ია.

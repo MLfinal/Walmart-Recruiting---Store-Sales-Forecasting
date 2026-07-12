@@ -876,3 +876,7 @@ You must authenticate before you can call the Kaggle API.
 TimesFM-ის საუკეთესო შეფასება დარჩა v3 corrected blend WMAE `1588.8029`. Raw zero-shot-თან შედარებით blend-მა seasonal structure, residual dynamics და მცირე XReg contribution გააერთიანა; v3.1 audit-მა XReg-ის რეალური, თუმცა დროში არასტაბილური სარგებელი აჩვენა; LoRA-მ generalization მკვეთრად გააუარესა და calibration-მა იგი სწორად გამორიცხა.
 
 საბოლოოდ გვაქვს არა მხოლოდ საუკეთესო validation prediction, არამედ სრული reproducible lifecycle: გაშვებული ექსპერიმენტები და diagnostics, W&B artifacts, audited champion selection, raw-input pipeline, W&B Model Registry registration და Registry-დან შესრულებული დამოუკიდებელი inference. TimesFM-ის model family ამ ეტაპზე დასრულებულია.
+
+## საბოლოო აუდიტირებული შეჯამება
+
+TimesFM pretrained decoder-only time-series foundation model-ია. Flow: global weekly calendar → per-series context → zero-shot forecast → seasonal-naive/residual/XReg candidates → calibration-only nonnegative blend → untouched final validation → audit → optional LoRA experiment → Registry packaging. v1 zero-shot `1672.2525`, v2 blend `1620.5430`, audited v3 XReg blend **`1588.8029`**; LoRA standalone `8396.0651` იყო და blend-მა weight `0` მისცა. Kaggle leaderboard score დაფიქსირებული არ არის, ამიტომ TimesFM ძლიერი local foundation-model candidate-ია, მაგრამ XGBoost-ის `2806` Kaggle champion სტატუსს ვერ ეცილება.

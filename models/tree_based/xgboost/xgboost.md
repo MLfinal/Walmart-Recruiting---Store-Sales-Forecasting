@@ -340,3 +340,9 @@ Validation score-ით LightGBM ბევრ ეტაპზე უკეთ �
 ჩემი დასკვნა:
 
 XGBoost ამ პროექტში ყველაზე კარგი final candidate გახდა, რადგან მისი feature engineering და inference pipeline ყველაზე ახლოს იყო რეალურ Kaggle test პირობებთან. მოდელის არქიტექტურა დაეხმარა, მაგრამ მთავარი მოგება მოვიდა სწორად აშენებული safe features + raw-input registry pipeline-იდან.
+
+## საბოლოო აუდიტირებული შეჯამება
+
+არქიტექტურა არის global gradient-boosted decision-tree regressor: ყველა Store–Dept row ერთ მოდელში შედის. Training flow: chronological split → fit-only imputations/encodings → safe `SalesLag52` და calendar/holiday/markdown interactions → holiday weight `5` → Optuna/manual parameter selection → full-data refit → `BaseEstimator`/`TransformerMixin` raw transformer + sklearn pipeline → Registry inference.
+
+Baseline WMAE იყო `2902.2892`; engineered experiment მივიდა `1612.1265` local WMAE-მდე. საბოლოო Kaggle score არის **`2806`**, რაც პროექტში ყველაზე დაბალი დადასტურებული leaderboard score-ია. მიზეზი: ძლიერი nonlinear interactions, cross-series pooling, safe yearly lag და train/inference feature parity.

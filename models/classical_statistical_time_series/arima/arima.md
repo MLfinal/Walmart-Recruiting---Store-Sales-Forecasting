@@ -531,3 +531,7 @@ Tree-based models უკეთ მუშაობენ, რადგან მ�
 5. direct comparison Kaggle submission-ზე.
 
 ამ ეტაპზე კი `baseline_arima.ipynb` რჩება სწრაფ baseline-ად და არა final model candidate-ად.
+
+## საბოლოო აუდიტირებული შეჯამება
+
+ARIMA aggregate weekly total-ს პროგნოზირებს და შემდეგ Store–Dept rows-ზე ანაწილებს. Flow: total aggregation → chronological 39-week validation → `(p,d,q)` grid → `last_year_share`/`blended_share` comparison → WMAE → full-data refit → raw-input allocation pipeline. Baseline `(1,1,1)` იყო `1856.8605`; საუკეთესო tuned `(1,0,2)` + last-year share გახდა `1829.8800`. Seasonal naive `1800.1736` მაინც უკეთესი დარჩა. დადასტურებული Kaggle score არ არის, ამიტომ ARIMA champion არ არის.

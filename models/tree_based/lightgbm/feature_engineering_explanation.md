@@ -832,3 +832,7 @@ Weekly_Sales
 ```
 
 ამ Walmart dataset-ში historical sales features, როგორც წესი, უფრო მნიშვნელოვანია, ვიდრე რთული feature selection მეთოდები.
+
+## Feature engineering-ის საბოლოო აუდიტირებული როლი
+
+საბოლოო tree-based flow-ში feature მხოლოდ მაშინ ითვლება დასაშვებად, თუ validation-ისა და Kaggle test-ის forecast origin-ზე ხელმისაწვდომია. ამიტომ safe set მოიცავს calendar/holiday/store/markdown/external მონაცემებს და observed history-დან `SalesLag52`-ს; future target-ზე დამოკიდებული `lag_1/4/13` და rolling statistics აკრძალულია. ამ parity-მ LightGBM Kaggle score ძველი დაახლოებით `6200`-დან საბოლოო `2809`-მდე მიიყვანა. იგივე პრინციპი XGBoost-ის `2806` champion შედეგის მთავარი საფუძველიცაა.

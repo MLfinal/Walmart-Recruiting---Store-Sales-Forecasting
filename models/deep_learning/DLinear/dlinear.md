@@ -1247,3 +1247,7 @@ Best validation WMAE = 1506.28
 ჩემი დასკვნა:
 
 DLinear აღმოჩნდა საუკეთესო deep learning მიმართულებიდან, მაგრამ tree-based მოდელებს მაინც ჩამორჩა. ამ dataset-ზე tabular feature engineering უფრო მნიშვნელოვანი აღმოჩნდა, ვიდრე მხოლოდ neural forecasting architecture. DLinear-ის `3500` score მისაღები და შედარებით სტაბილურია, მაგრამ საბოლოო Kaggle submission-ისთვის XGBoost უკეთესი candidate ჩანს.
+
+## საბოლოო აუდიტირებული შეჯამება
+
+DLinear time series-ს moving-average trend-ად და seasonal residual-ად შლის, ორივეს linear projection-ით 39 კვირაზე აგრძელებს და საუკეთესო ვერსიაში Store–Dept bias embedding-ს ამატებს. Flow: full panel → 52-week context → normalization → weighted L1/WMAE training → early stopping/Optuna → full refit → raw pipeline. Baseline `1523.2097`, საუკეთესო manual v1 `1506.2825`, tuned run `1508.9519`; Kaggle დაახლოებით `3500`. Local DL champion იყო, მაგრამ TFT-ის private `3058.9828` და XGBoost-ის `2806` leaderboard შედეგებს ჩამორჩა.

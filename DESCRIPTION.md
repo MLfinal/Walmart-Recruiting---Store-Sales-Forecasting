@@ -46,3 +46,6 @@ MLflow ზე ექსპერიმენტები და ლოგებ�
     Presentation - 10% : საბოლოო პრეზენტაცია უნდა წარმოადგენდეს შეჯამებას README/Report - ის მთავარი კომპონენტების.
 
 გაითვალისწინეთ, რომ პრეზენტაცია არის სავალდებულო. სლაიდები არ არის აუცილებელი, თუმცა რეკომენდირებულია რადგან პრეზენტაცია არის 10 წუთიანი და ბევრად გაგიმარტივდებათ თქვენც მოყოლა და მეც შეფასება
+## საბოლოო model-selection დასკვნა
+
+პროექტის ყველა არაჰიბრიდული მოდელის არქიტექტურა, ეტაპობრივი training/inference flow, family-level comparison და score evidence თავმოყრილია [models/MODEL_COMPARISON.md](models/MODEL_COMPARISON.md)-ში. საბოლოო Kaggle champion არის **XGBoost (`2806` WMAE)**; არჩევანი ეფუძნება repository-ში დაფიქსირებულ ყველაზე დაბალ leaderboard score-ს და არა სხვადასხვა validation setup-იდან აღებულ შეუდარებელ local metric-ებს.

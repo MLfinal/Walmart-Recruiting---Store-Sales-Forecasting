@@ -686,3 +686,7 @@ Tree-based models უკეთ მუშაობენ, რადგან მ�
 5. direct comparison Kaggle submission-ზე.
 
 ამ ეტაპზე კი `baseline_sarima.ipynb` რჩება სწრაფ baseline-ად და არა final model candidate-ად.
+
+## საბოლოო აუდიტირებული შეჯამება
+
+SARIMA/SARIMAX flow ARIMA-ს მსგავსია, მაგრამ სეზონურ ან external structure-ს ამატებს: aggregate forecast → row allocation → WMAE → Registry submission. საუკეთესო SARIMA local WMAE `1831.6176` იყო; SARIMAX local WMAE `2563.6915`-მდე გაუარესდა. მიუხედავად ამისა, Kaggle-ზე SARIMAX `3525`-ით SARIMA `3842`-ს აჯობა. ეს ნიშნავს, რომ external signals test aggregate total-ზე სასარგებლო იყო, თუმცა Store–Dept allocation კვლავ მთავარი bottleneck დარჩა.

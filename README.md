@@ -288,3 +288,8 @@ Classical ARIMA/SARIMA სასარგებლოა თეორიულ�
 ## მოკლე დასკვნა
 
 ამ მონაცემებში forecasting-ის მთავარი წყაროა წარსული გაყიდვები და yearly/holiday seasonality. Store size/type და department identity ასევე მნიშვნელოვანია. ეკონომიკური ცვლადები და markdowns ცალკე სუსტად ჩანს, მაგრამ interaction-ებში შეიძლება სასარგებლო იყოს. საბოლოო მოდელებისთვის ყველაზე ძლიერი საწყისი მიმართულებაა global tree-based model lag/rolling/calendar/store features-ებით, შემდეგ კი deep learning/global time-series არქიტექტურებთან შედარება.
+## მოდელების საბოლოო შედარება
+
+ყველა არაჰიბრიდული არქიტექტურის, training flow-ის, local WMAE-ისა და დაფიქსირებული Kaggle score-ის სრული აუდიტი მოცემულია [models/MODEL_COMPARISON.md](models/MODEL_COMPARISON.md)-ში.
+
+დადასტურებული Kaggle ranking-ის მიხედვით საუკეთესო მოდელია **XGBoost — `2806` WMAE**. LightGBM-მა `2809`, TFT-მ private `3058.98280`, DLinear-მა დაახლოებით `3500`, SARIMAX-მა `3525`, SARIMA-მ `3842`, ხოლო N-BEATS-მა დაახლოებით `4700` მიიღო. Prophet და TimesFM მხოლოდ local-validation ranking-შია, რადგან repository-ში მათი Kaggle leaderboard score დაფიქსირებული არ არის.

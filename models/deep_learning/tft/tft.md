@@ -766,3 +766,7 @@ prediction SHA-256    = 96e1018a7573866f81b77c29362bae112aa498fb1b61fedd88aea979
 18 top-2000 series inference dataset-ში საკმარისი window-ის გამო ვერ მოხვდა. ეს crash არ არის: მათზეც pipeline-მა seasonal-naive fallback გამოიყენა. საბოლოო output ყოველთვის სრულია.
 
 ერთ ეტაპზე მხოლოდ W&B submission artifact logging გაჩერდა, რადგან იგივე artifact სახელი ადრე სხვა artifact type-ით არსებობდა. Model prediction და Registry pipeline ამ დროს უკვე წარმატებული იყო. საბოლოო inference run-ში artifact type/name consistency გამოსწორდა და submission CSV, manifest და histogram W&B-ზე წარმატებით დაილოგა.
+
+## საბოლოო აუდიტირებული შეჯამება
+
+TFT აერთიანებს variable selection networks-ს, recurrent temporal encoder-ს, gated residual layers-ს და attention-ს; static Store/Dept IDs, known calendar/holiday covariates და observed history ერთად მუშავდება. საბოლოო flow seasonal-naive 52 baseline-ის residual-ს სწავლობს, prediction-ს `0.35` weight-ით აბლენდებს და uncovered series-ზე naive fallback-ს იყენებს. საუკეთესო comparable subset validation WMAE `2379.5014`; Kaggle public `2979.86060`, private `3058.98280`. ეს საუკეთესო deep-learning leaderboard შედეგია, თუმცა `32.87%` fallback coverage აუცილებლად უნდა აღინიშნოს.
