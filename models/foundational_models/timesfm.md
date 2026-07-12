@@ -523,3 +523,153 @@ v3.1-მა ორი რამ დაადასტურა:
 2. XReg დროში არასტაბილურია: holiday-heavy fold-ზე ძლიერია, შემდეგ fold-ზე მცირედ აზიანებს შედეგს.
 
 ამიტომ TimesFM family-ის champion უცვლელია — v3 corrected four-way blend `1588.8029`. v3.1 არის ამ არჩევანის audit და არა ახალი champion model.
+
+## Experiment v4 — LoRA adaptation + capped XReg hybrid
+
+v4 იყო პირველი ექსპერიმენტი, სადაც TimesFM-ის forecast Walmart data-ზე neural training-ით მოვარგეთ. სრული 231M-parameter model არ გაგვიწვრთნია: pretrained base weights frozen დარჩა და `all-linear` layers-ზე მხოლოდ მცირე LoRA adapters დაემატა.
+
+```text
+total parameters      = 232,672,192
+trainable LoRA params = 1,382,912
+trainable share       = 0.5944%
+```
+
+LoRA და XReg end-to-end ერთად არ სწავლობს. ოფიციალური XReg wrapper საკუთარ base TimesFM checkpoint-ს იყენებს და PEFT adapter-ს პირდაპირ ვერ იღებს. ამიტომ v4 hybrid-ის flow იყო:
+
+```text
+historical Weekly_Sales
+→ TimesFM 2.5 + trained LoRA adapter
+→ Walmart-adapted forecast
+
+v3 artifact
+→ previously validated TimesFM XReg forecast
+
+LoRA + XReg + raw + residual + SeasonalNaive52
+→ capped calibration blend
+```
+
+### Chronological splits
+
+Final 39-week validation კვლავ training/calibration-ის გარეთ დარჩა:
+
+```text
+LoRA training targets end = 2011-06-10
+LoRA validation           = 2011-06-17 → 2011-09-09, 13 კვირა
+blend calibration         = 2011-09-16 → 2012-01-27, 20 კვირა
+final validation          = 2012-02-03 → 2012-10-26, 39 კვირა
+```
+
+სრული training matrix მოიცავდა `3331` Store–Dept series-ს. LoRA dataset-ში შეიქმნა `6000` random windows; validation-ში target observation ჰქონდა `3108` series-ს. Missing Store–Dept observations loss-ში zero weight-ით გამოირიცხა, ხოლო holiday target weeks weight `5`-ით შეფასდა.
+
+### LoRA configuration
+
+```text
+context length         = 32
+training horizon       = 13
+epochs requested       = 6
+batch size             = 8
+gradient accumulation  = 4
+learning rate          = 5e-5
+LoRA rank / alpha      = 4 / 8
+LoRA dropout           = 0.05
+optimizer              = AdamW
+early stopping patience= 2
+```
+
+Context `32` ავირჩიეთ, რათა ადრეულ history-ში საკმარისი random training windows შექმნილიყო. Base TimesFM internal normalization-ს იყენებს, ამიტომ sales values გარედან არ დაგვისკალავს. Loss იყო original-scale holiday-weighted absolute error.
+
+### Training curve და early stopping
+
+| Epoch | Train WMAE | LoRA-validation WMAE | Elapsed |
+| ---: | ---: | ---: | ---: |
+| 1 | `3811.3475` | **`2123.3362`** | `5.84` წუთი |
+| 2 | `3690.0201` | `2143.4547` | `11.17` წუთი |
+| 3 | `3613.0545` | `2163.2184` | `16.52` წუთი |
+
+Train error ყოველ epoch-ზე მცირდებოდა, მაგრამ validation error პირველივე epoch-ის შემდეგ იზრდებოდა. Early stopping epoch 3-ზე ჩაირთო და best adapter epoch 1-დან აღადგინა. ეს არის მკაფიო overfitting/domain-overadaptation pattern: adapter training windows-ს უკეთ ერგებოდა, თუმცა მომავალ 13 კვირაზე generalization უარესდებოდა.
+
+რეალური training მოსალოდნელ 2–4 საათზე ბევრად სწრაფი აღმოჩნდა:
+
+```text
+training time          = 16.52 წუთი
+LoRA calibration pass  = 6.10 წუთი
+LoRA final pass        = 6.08 წუთი
+```
+
+### Final LoRA შედეგი
+
+Best adapter-მა უფრო გვიან პერიოდებზე ძალიან ცუდი forecast შექმნა:
+
+```text
+LoRA calibration WMAE = 9926.4555
+LoRA final WMAE       = 8396.0651
+LoRA final MAE        = 8296.9159
+```
+
+LoRA-validation `2123.34` და final `8396.07` შორის დიდი სხვაობა აჩვენებს, რომ 32-week context/13-week target-ზე ადრეული history-ით მიღებული adaptation 39-week horizon-ზე არ გადავიდა. შესაძლო მიზეზებია:
+
+- training context-ში სრული 52-week annual cycle არ ეტეოდა;
+- LoRA მხოლოდ ადრეულ regime-ზე ისწავლა;
+- 13-week training horizon და 39-week final horizon განსხვავდება;
+- short random windows-ზე adapter-მა local scale/pattern ზედმეტად შეცვალა და pretrained generalization დააზიანა.
+
+ეს numerical crash არ ყოფილა: predictions finite იყო და evaluation ბოლომდე შესრულდა. პრობლემა იყო forecast quality, არა pipeline failure.
+
+### Capped blend-ის გადაწყვეტილება
+
+v4 calibration search-ში candidates იყო:
+
+```text
+SeasonalNaive52
+Raw TimesFM
+Residual TimesFM
+LoRA TimesFM
+TimesFM XReg, maximum weight 0.10
+```
+
+არჩეული weights:
+
+```text
+SeasonalNaive52   = 0.40
+Raw TimesFM       = 0.05
+Residual TimesFM  = 0.45
+LoRA TimesFM      = 0.00
+TimesFM XReg      = 0.10
+```
+
+Calibration-მა LoRA სრულად უარყო და `0%` weight მისცა. დანარჩენი weights ზუსტად v3 configuration-ს დაუბრუნდა. ამიტომ v4 final blend prediction და hash v3.1-ს დაემთხვა:
+
+```text
+v4 blend WMAE = 1588.8029
+v3 WMAE       = 1588.8029
+improvement   = 0.0%
+prediction SHA-256 = 556efcd0202ded86e8cc8af53603fc4980a74df94485c57616b1cf5668b6ccab
+```
+
+Final candidate ranking:
+
+| Candidate | Calibration WMAE | Final WMAE |
+| --- | ---: | ---: |
+| v4 blend / v3 configuration | **`1918.6194`** | **`1588.8029`** |
+| Raw TimesFM | `3601.4726` | `1672.2525` |
+| Residual TimesFM | `2072.9576` | `1720.1709` |
+| SeasonalNaive52 | `2106.7113` | `1799.0451` |
+| TimesFM XReg | `3242.5574` | `1939.0755` |
+| TimesFM LoRA | `9926.4555` | `8396.0651` |
+
+### W&B artifacts
+
+```text
+run name            = timesfm_v4_lora_xreg_hybrid
+run id              = o5x6bw14
+adapter artifact    = timesfm-v4-lora-adapter
+evaluation artifact = timesfm-v4-lora-xreg-evaluation
+```
+
+W&B-ზე ინახება epoch-level train/validation WMAE, learning rate, elapsed time, best epoch, trainable parameter count, LoRA adapter files, calibration weight search, candidate scores, validation predictions და diagnostic plots.
+
+## v4-ის დასკვნა
+
+LoRA training ტექნიკურად წარმატებით შესრულდა და adapter reproducibly შეინახა, მაგრამ model quality მკვეთრად გააუარესა. Corrected calibration-მა უსაფრთხოდ დაიცვა final forecast და LoRA-ს `0%` weight მისცა. ამიტომ v4 ახალი champion არ არის და TimesFM family-ის საუკეთესო მოდელად კვლავ v3 corrected blend `1588.8029` რჩება.
+
+ეს უარყოფითი შედეგიც მნიშვნელოვანი ექსპერიმენტული დასკვნაა: pretrained foundation model-ის parameter-efficient adaptation ავტომატურად გაუმჯობესებას არ ნიშნავს. მოკლე context/horizon-ზე fine-tuning-მა ამ შემთხვევაში TimesFM-ის ძლიერი zero-shot generalization დააზიანა.
