@@ -411,3 +411,115 @@ Artifact-ში ინახება calibration/validation predictions, ორ
 | v3 | XReg covariates + corrected four-way blend | **`1588.8029`** | `4.99%` უკეთესი |
 
 სამი run-ის შემდეგ TimesFM family-ის champion არის v3 blend. Foundation model-ის weights ჯერ ერთხელაც არ განახლებულა: მთელი გაუმჯობესება zero-shot temporal forecast-ის, yearly residual representation-ის, leakage-safe covariates-ის და historical calibration-ის სწორად გაერთიანებიდან მივიღეთ.
+
+## v3.1 — XReg ablation და temporal stability audit
+
+v3.1 ახალი forecasting model არ არის. მისი მიზანი იყო v3-ის `1588.80` გაუმჯობესების წყაროს იზოლირება: რამდენი მოიტანა clipping fix-მა და რამდენი — XReg-მა. Notebook-მა W&B-დან ჩამოტვირთა v3-ის უკვე შენახული calibration/validation predictions და არც TimesFM inference გაუშვია, არც training.
+
+```text
+source artifact   = timesfm-v3-xreg-corrected-calibration:latest
+calibration rows  = 59,317, 20 კვირა
+validation rows   = 115,588, 39 კვირა
+```
+
+### Corrected blend XReg-ის გარეშე
+
+პირველად იგივე clipping-aware search მხოლოდ სამ ძველ კომპონენტზე ჩავატარეთ:
+
+```text
+SeasonalNaive52   = 0.40
+Raw TimesFM       = 0.10
+Residual TimesFM  = 0.50
+
+calibration WMAE = 1933.8741
+validation WMAE  = 1615.9719
+```
+
+ეს v2-ის ძველ `1620.5430` შედეგზე `4.5711` WMAE-ით უკეთესია. შესაბამისად, v2→v3 გაუმჯობესების მცირე ნაწილი მართლაც calibration implementation-ის გასწორებამ შექმნა: weight search და final prediction ახლა ორივე clipping-ის შემდეგ ფასდება.
+
+### Corrected blend XReg-ით
+
+ოთხკომპონენტიანმა search-მა კვლავ ზუსტად v3 weights აირჩია:
+
+```text
+SeasonalNaive52   = 0.40
+Raw TimesFM       = 0.05
+Residual TimesFM  = 0.45
+TimesFM XReg      = 0.10
+
+calibration WMAE = 1918.6194
+validation WMAE  = 1588.8029
+```
+
+პირდაპირი ablation:
+
+| Setup | Calibration WMAE | Final validation WMAE |
+| --- | ---: | ---: |
+| corrected blend, XReg-ის გარეშე | `1933.8741` | `1615.9719` |
+| corrected blend, XReg-ით | **`1918.6194`** | **`1588.8029`** |
+
+XReg-ის ზუსტი marginal contribution final validation-ზე:
+
+```text
+1615.9719 - 1588.8029 = 27.1690 WMAE
+relative gain = 1.6813%
+```
+
+ამგვარად v2→v3 სრული `31.7401` WMAE მოგება ორ ნაწილად იყოფა:
+
+```text
+clipping-aware calibration fix ≈ 4.5711
+XReg complementary component   ≈ 27.1690
+total                           ≈ 31.7401
+```
+
+ეს ადასტურებს, რომ XReg-ის `10%` weight შემთხვევითი დეკორაცია არ ყოფილა: untouched final validation-ზე მან რეალური დამატებითი მოგება შექმნა, მიუხედავად იმისა, რომ standalone XReg forecast სუსტი იყო.
+
+### Time-ordered stability folds
+
+XReg-ის ეფექტის სტაბილურობისთვის 20-კვირიან calibration period-ში ორი expanding-time audit გაკეთდა. თითო fold-ში weights მხოლოდ უფრო ადრეულ კვირებზე შეირჩა და შემდეგ მომავალ 5 კვირაზე შეფასდა.
+
+| Fold | Weight-fit პერიოდი | Holdout | No-XReg WMAE | With-XReg WMAE | XReg gain |
+| --- | --- | --- | ---: | ---: | ---: |
+| fold 1 | 2011-09-16 → 2011-11-18 | 2011-11-25 → 2011-12-23 | `3343.1626` | **`2978.6975`** | **`+364.4651`** |
+| fold 2 | 2011-09-16 → 2011-12-23 | 2011-12-30 → 2012-01-27 | **`2058.7755`** | `2071.0250` | `-12.2495` |
+
+Fold 1-ში, რომელიც Thanksgiving/Christmas პერიოდს მოიცავს, XReg ძალიან სასარგებლო აღმოჩნდა. ეს ლოგიკურია: XReg ხედავს holiday/event/Markdown/calendar covariates-ს. Fold 2-ში კი მან მცირე ზიანი მოიტანა. ორი fold-იდან მხოლოდ ერთზე იყო holdout improvement დადებითი.
+
+Weights-იც regime-ის მიხედვით იცვლებოდა:
+
+```text
+fold 1 with XReg: naive 0.20, raw 0.20, residual 0.40, XReg 0.20
+fold 2 with XReg: naive 0.35, raw 0.00, residual 0.50, XReg 0.15
+```
+
+ეს ნიშნავს, რომ XReg-ს აქვს სასარგებლო holiday/context signal, მაგრამ მისი ღირებულება დროში მუდმივი არ არის. იგი უნდა დარჩეს მცირე, კონტროლირებულ ensemble component-ად და არა primary forecast-ად.
+
+### Audit W&B run
+
+```text
+run name = timesfm_v3_1_xreg_ablation_stability_audit
+run id   = f4pnn5ga
+artifact = timesfm-v3-1-xreg-ablation-audit
+```
+
+Artifact-ში ინახება ორივე complete weight search, final ablation, temporal fold results, audited validation predictions, metrics და plot.
+
+Audit notebook-ის install cell-მა `pandas 3.0.3` და `numpy 2.5.1` დააყენა, რის გამოც Colab-მა `google-colab`/`numba` dependency warning დაბეჭდა. Audit მაინც სრულად დასრულდა და მისი გამოთვლები მხოლოდ pandas/numpy-ზე მუშაობდა, ამიტომ შედეგი არ დაზიანებულა. შემდეგ notebook-ში ამ packages-ს აღარ განვაახლებთ იძულებით; დავაყენებთ მხოლოდ საჭირო W&B/model dependencies-ს, რათა Colab environment-ის pinned versions შევინარჩუნოთ.
+
+v3 artifact CSV-ის ხელახლა წაკითხვის შემდეგ prediction hash გახდა:
+
+```text
+556efcd0202ded86e8cc8af53603fc4980a74df94485c57616b1cf5668b6ccab
+```
+
+v3-ის original hash-თან byte-level განსხვავება CSV serialization/reload precision-იდან მოდის; final WMAE `1588.8029448973086` ზუსტად განმეორდა, ამიტომ forecast-ის შინაარსობრივი reproducibility დადასტურდა.
+
+## v3.1-ის საბოლოო დასკვნა
+
+v3.1-მა ორი რამ დაადასტურა:
+
+1. v3-ის მოგების დიდი ნაწილი (`27.17` WMAE) ნამდვილად XReg-ის complementary contribution იყო და არა მხოლოდ clipping bug fix.
+2. XReg დროში არასტაბილურია: holiday-heavy fold-ზე ძლიერია, შემდეგ fold-ზე მცირედ აზიანებს შედეგს.
+
+ამიტომ TimesFM family-ის champion უცვლელია — v3 corrected four-way blend `1588.8029`. v3.1 არის ამ არჩევანის audit და არა ახალი champion model.
