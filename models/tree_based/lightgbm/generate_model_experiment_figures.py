@@ -26,14 +26,31 @@ def save(fig, name):
 
 
 def learning_curves():
-    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-    for ax, (trial, (rounds, train, valid)) in zip(axes.flat, CURVES.items()):
-        ax.plot(rounds, train, color=BLUE, lw=2.3, label="Train weighted MAE")
-        ax.plot(rounds, valid, color=ORANGE, lw=2.3, label="Validation weighted MAE")
-        ax.set(title=f"Optuna trial {trial}", xlabel="Boosting round", ylabel="Weighted MAE")
-        ax.grid(alpha=.2); ax.legend()
-    fig.suptitle("LightGBM model experiment — loss reduction by trial", fontsize=18, weight="bold")
-    save(fig, "01_learning_curves_all_trials.png")
+    # Trial 1 is the best Optuna trial (validation WMAE = 1,567.70).
+    # The notebook logged checkpoints every 100 rounds, not every iteration.
+    rounds, train, valid = CURVES[1]
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+
+    axes[0].plot(rounds, train, color=BLUE, lw=2.5, marker="o", label="Train weighted MAE")
+    axes[0].plot(rounds, valid, color=ORANGE, lw=2.5, marker="o", label="Validation weighted MAE")
+    axes[0].fill_between(rounds, train, valid, color=RED, alpha=.08, label="Generalization gap")
+    axes[0].set(title="Full learning curve", xlabel="Boosting round", ylabel="Weighted MAE")
+    axes[0].grid(alpha=.2); axes[0].legend()
+
+    axes[1].plot(rounds, valid, color=ORANGE, lw=2.8, marker="o")
+    axes[1].scatter([1200], [1567.76], color=GREEN, s=90, zorder=5)
+    axes[1].annotate(
+        "Best logged checkpoint\n1,567.76",
+        xy=(1200, 1567.76), xytext=(820, 1585),
+        arrowprops={"arrowstyle": "->", "color": GREEN}, color=GREEN, weight="bold",
+    )
+    axes[1].set_ylim(1560, 1660)
+    axes[1].set(title="Validation curve — zoomed scale", xlabel="Boosting round", ylabel="Validation weighted MAE")
+    axes[1].grid(alpha=.2)
+
+    fig.suptitle("Best LightGBM Optuna trial (Trial 1) — checkpoints logged every 100 rounds", fontsize=17, weight="bold")
+    fig.text(.5, -.01, "Validation improves by about 84 WMAE, then plateaus while training error keeps falling.", ha="center", color=RED, weight="bold")
+    save(fig, "01_best_optuna_trial_learning_curve.png")
 
 
 def trial_comparison():
