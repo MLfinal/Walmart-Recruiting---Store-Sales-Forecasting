@@ -301,3 +301,48 @@ Notebook დამატებით ამოწმებს raw test schema-�
 - feature-group ablation: history, holiday, markdown და aggregate ჯგუფების ცალ-ცალკე გავლენის გაზომვა;
 - time-based cross-validation რამდენიმე cutoff-ზე;
 - Kaggle submission score-ის დამატება W&B run-სა და მთავარ პროექტის README-ში.
+
+## Kaggle submission ანალიზი
+
+Final Kaggle submission-ზე XGBoost-ის score მივიღე:
+
+```text
+Kaggle score: 2806
+```
+
+ეს იყო საუკეთესო შედეგი იმ მოდელებს შორის, რომლებიც ამ ეტაპზე გავუშვით:
+
+```text
+XGBoost = 2806
+DLinear = 3500
+N-BEATS = 4700
+LightGBM = 3600
+```
+
+ჩემი აზრით, XGBoost-ის უპირატესობა მხოლოდ model architecture-იდან არ მოდის. მთავარი მიზეზი იყო ის, რომ XGBoost pipeline თავიდანვე უფრო inference-safe და Kaggle-oriented იყო.
+
+რატომ იმუშავა კარგად:
+
+- pipeline იყენებდა safe `SalesLag52` feature-ს და არა future `Weekly_Sales`-ზე დამოკიდებულ short lag/rolling feature-ებს;
+- raw-input pipeline ინახავდა training history-ს, aggregate mappings-ს და feature order-ს;
+- inference-ზე `test.csv` პირდაპირ შედიოდა pipeline-ში და preprocessing drift-ის რისკი ნაკლები იყო;
+- Store/Dept historical aggregates და yearly lag კარგად ერგება Walmart-ის seasonal demand-ს;
+- XGBoost-ის regularized tree boosting საკმაოდ სტაბილური აღმოჩნდა noisy Store-Dept series-ებზე.
+
+Validation score-ით LightGBM ბევრ ეტაპზე უკეთ ჩანდა, მაგრამ Kaggle-ზე XGBoost უკეთესი გამოვიდა. ეს ჩემთვის ნიშნავს, რომ XGBoost validation/inference contract უფრო სანდო იყო. LightGBM-ის ძველი ვერსია validation-ზე ზედმეტად ოპტიმისტური იყო unsafe lag/rolling feature-ების გამო. Safe LightGBM ვერსიამ Kaggle გააუმჯობესა, მაგრამ XGBoost-ს მაინც ვერ აჯობა.
+
+რატომ არ არის ეს მხოლოდ architecture-ის გამარჯვება:
+
+- XGBoost და LightGBM ორივე gradient boosted tree მოდელია.
+- ორივეს შეუძლია nonlinear interaction-ების დაჭერა.
+- მთავარი განსხვავება იყო feature design, leakage control, inference pipeline და validation-test consistency.
+
+ჩემი დასკვნა:
+
+XGBoost ამ პროექტში ყველაზე კარგი final candidate გახდა, რადგან მისი feature engineering და inference pipeline ყველაზე ახლოს იყო რეალურ Kaggle test პირობებთან. მოდელის არქიტექტურა დაეხმარა, მაგრამ მთავარი მოგება მოვიდა სწორად აშენებული safe features + raw-input registry pipeline-იდან.
+
+## საბოლოო აუდიტირებული შეჯამება
+
+არქიტექტურა არის global gradient-boosted decision-tree regressor: ყველა Store–Dept row ერთ მოდელში შედის. Training flow: chronological split → fit-only imputations/encodings → safe `SalesLag52` და calendar/holiday/markdown interactions → holiday weight `5` → Optuna/manual parameter selection → full-data refit → `BaseEstimator`/`TransformerMixin` raw transformer + sklearn pipeline → Registry inference.
+
+Baseline WMAE იყო `2902.2892`; engineered experiment მივიდა `1612.1265` local WMAE-მდე. საბოლოო Kaggle score არის **`2806`**, რაც პროექტში ყველაზე დაბალი დადასტურებული leaderboard score-ია. მიზეზი: ძლიერი nonlinear interactions, cross-series pooling, safe yearly lag და train/inference feature parity.

@@ -1,0 +1,22 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+"*.ipynb" = [
+    "E402", # Notebook setup/install cells intentionally precede imports.
+    "F401", # Imports are often exploratory or consumed indirectly by later cells.
+    "F404", # Future imports cannot precede notebook install/metadata cells.
+    "F811", # Re-importing names across independently runnable cells is intentional.
+]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["models/**/*.py"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_configs = true
+show_error_codes = true
