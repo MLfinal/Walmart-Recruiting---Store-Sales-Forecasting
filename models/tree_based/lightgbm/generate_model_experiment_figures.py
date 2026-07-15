@@ -80,25 +80,25 @@ def experiment_evolution():
 def lag_transition():
     fig, ax = plt.subplots(figsize=(16, 7)); ax.axis("off")
     stages = [
-        ("1. Unsafe lag model", [
+        ("1. არაუსაფრთხო lag მოდელი", [
             "lag_1, lag_4, lag_13, lag_52",
-            "rolling mean/std: 4 and 13",
-            "fixed n_estimators = 100",
-            "Validation looked strong",
+            "rolling mean/std: 4 და 13",
+            "ფიქსირებული n_estimators = 100",
+            "validation შედეგი ძლიერი ჩანდა",
             "Kaggle ≈ 6200",
         ], "#FEE2E2", RED),
-        ("2. Safe SalesLag52 model", [
-            "Removed short lags + rolling",
-            "Added exact-date SalesLag52",
-            "Added SalesLag52_available",
-            "still fixed n_estimators = 100",
+        ("2. უსაფრთხო SalesLag52 მოდელი", [
+            "ამოვიღეთ მოკლე lag-ები და rolling",
+            "დავამატეთ exact-date SalesLag52",
+            "დავამატეთ SalesLag52_available",
+            "კვლავ ფიქსირებული n_estimators = 100",
             "Kaggle ≈ 3490–3600",
         ], "#DCFCE7", GREEN),
-        ("3. Final best model", [
-            "Kept inference-safe features",
-            "Added aggregate count features",
-            "max 1200 rounds + early stopping",
-            "best iteration = 844 + full-data refit",
+        ("3. საბოლოო საუკეთესო მოდელი", [
+            "დავტოვეთ inference-safe features",
+            "დავამატეთ aggregate count features",
+            "მაქს. 1200 round + early stopping",
+            "საუკეთესო iteration = 844 + full-data refit",
             "Kaggle = 2809",
         ], "#EDE9FE", PURPLE),
     ]
@@ -110,8 +110,8 @@ def lag_transition():
         if i < 2:
             ax.annotate("", xy=(xs[i+1]-.15,.52), xytext=(x+.15,.52), xycoords=ax.transAxes,
                         arrowprops=dict(arrowstyle="->", lw=3, color=SLATE))
-    ax.set_title("LightGBM model evolution: safer features, then more boosting capacity", fontsize=19, weight="bold", pad=25)
-    ax.text(.5,.05,"Main improvement: remove unavailable future-sales features, then replace the 100-tree limit with early-stopped boosting and full-data refit.",transform=ax.transAxes,ha="center",color=SLATE,weight="bold",fontsize=12)
+    ax.set_title("LightGBM მოდელის განვითარება: უსაფრთხო features და მეტი boosting capacity", fontsize=19, weight="bold", pad=25)
+    ax.text(.5,.05,"მთავარი გაუმჯობესება: მიუწვდომელი future-sales features ამოვიღეთ, ხოლო 100 ხის ლიმიტი early stopping-ით და full-data refit-ით ჩავანაცვლეთ.",transform=ax.transAxes,ha="center",color=SLATE,weight="bold",fontsize=12)
     save(fig, "04_three_stage_model_evolution.png")
 
 
