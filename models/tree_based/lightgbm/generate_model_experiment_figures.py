@@ -78,32 +78,41 @@ def experiment_evolution():
 
 
 def lag_transition():
-    rows = [
-        "lag_1 / lag_4 / lag_13",
-        "rolling mean/std (4, 13)",
-        "positional lag_52",
-        "exact-date SalesLag52",
-        "SalesLag52_available",
-        "aggregate mean/median/std",
-        "aggregate count features",
-        "calendar/holiday/markdown FE",
-        "all engineered features retained",
-        "full-data production refit",
+    fig, ax = plt.subplots(figsize=(16, 7)); ax.axis("off")
+    stages = [
+        ("1. Unsafe lag model", [
+            "lag_1, lag_4, lag_13, lag_52",
+            "rolling mean/std: 4 and 13",
+            "fixed n_estimators = 100",
+            "Validation looked strong",
+            "Kaggle ≈ 6200",
+        ], "#FEE2E2", RED),
+        ("2. Safe SalesLag52 model", [
+            "Removed short lags + rolling",
+            "Added exact-date SalesLag52",
+            "Added SalesLag52_available",
+            "still fixed n_estimators = 100",
+            "Kaggle ≈ 3490–3600",
+        ], "#DCFCE7", GREEN),
+        ("3. Final best model", [
+            "Kept inference-safe features",
+            "Added aggregate count features",
+            "max 1200 rounds + early stopping",
+            "best iteration = 844 + full-data refit",
+            "Kaggle = 2809",
+        ], "#EDE9FE", PURPLE),
     ]
-    columns = ["Unsafe lag/rolling", "Safe SalesLag52", "Corrected safe FE", "Final best — 2809"]
-    # 0 = absent/removed, 1 = used. This matrix summarizes the documented experiment configurations.
-    matrix = np.array([
-        [1,0,0,0], [1,0,0,0], [1,0,0,0],
-        [0,1,1,1], [0,1,1,1], [1,1,1,1],
-        [0,0,1,1], [1,1,1,1], [0,0,1,1], [0,0,0,1],
-    ])
-    fig, ax = plt.subplots(figsize=(13, 9)); ax.imshow(matrix, cmap="RdYlGn", vmin=0, vmax=1, aspect="auto")
-    ax.set_xticks(range(4), columns, rotation=12); ax.set_yticks(range(len(rows)), rows)
-    for r in range(len(rows)):
-        for c in range(4): ax.text(c,r,"USED" if matrix[r,c] else "NO",ha="center",va="center",fontsize=9)
-    ax.set_title("LightGBM experiment feature retention and final-training changes", fontsize=16, weight="bold")
-    ax.text(.5,-.12,"The final 2809 model keeps inference-safe features, removes short target lags/rolling windows, and refits on all labeled data.",transform=ax.transAxes,ha="center",color=PURPLE,weight="bold")
-    save(fig, "04_feature_retention_across_experiments.png")
+    xs = [.18, .50, .82]
+    for i, (x, (title, lines, face, edge)) in enumerate(zip(xs, stages)):
+        text = title + "\n\n" + "\n".join(f"• {line}" for line in lines)
+        ax.text(x, .52, text, transform=ax.transAxes, ha="center", va="center", fontsize=13,
+                bbox=dict(boxstyle="round,pad=1.2", facecolor=face, edgecolor=edge, linewidth=3))
+        if i < 2:
+            ax.annotate("", xy=(xs[i+1]-.15,.52), xytext=(x+.15,.52), xycoords=ax.transAxes,
+                        arrowprops=dict(arrowstyle="->", lw=3, color=SLATE))
+    ax.set_title("LightGBM model evolution: safer features, then more boosting capacity", fontsize=19, weight="bold", pad=25)
+    ax.text(.5,.05,"Main improvement: remove unavailable future-sales features, then replace the 100-tree limit with early-stopped boosting and full-data refit.",transform=ax.transAxes,ha="center",color=SLATE,weight="bold",fontsize=12)
+    save(fig, "04_three_stage_model_evolution.png")
 
 
 def feature_groups():
