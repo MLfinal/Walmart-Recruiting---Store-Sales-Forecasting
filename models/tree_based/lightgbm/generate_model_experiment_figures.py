@@ -63,29 +63,47 @@ def trial_comparison():
 
 
 def experiment_evolution():
-    labels = ["Unsafe\nlag/rolling", "Safe\nSalesLag52", "Corrected\nsafe FE"]
-    validation = [1573.4988, 1633.3693, 1615.4495]
-    kaggle = [6200, 3600, 3490]
-    colors = [RED, GREEN, GREEN]
+    labels = ["Unsafe\nlag/rolling", "Safe\nSalesLag52", "Corrected\nsafe FE", "Final tuned +\nfull-data refit"]
+    validation = [1573.4988, 1633.3693, 1615.4495, 1575.1545]
+    kaggle = [6200, 3600, 3490, 2809]
+    colors = [RED, GREEN, GREEN, PURPLE]
     fig, axes = plt.subplots(1, 2, figsize=(15, 6))
     axes[0].bar(labels, validation, color=colors); axes[0].set_ylim(1530, 1670); axes[0].set_title("Validation WMAE")
     axes[1].bar(labels, kaggle, color=colors); axes[1].set_title("Kaggle WMAE")
     for ax, vals in zip(axes, [validation, kaggle]):
         ax.set_ylabel("WMAE — lower is better"); ax.grid(axis="y", alpha=.2)
         for i,v in enumerate(vals): ax.text(i,v+(4 if ax is axes[0] else 80),f"{v:.1f}",ha="center")
-    fig.suptitle("Feature-engineering experiment evolution\nRed = inference-unsafe, green = inference-safe", fontsize=17, weight="bold")
+    fig.suptitle("Feature-engineering experiment evolution\nRed = inference-unsafe, green/purple = inference-safe", fontsize=17, weight="bold")
     save(fig, "03_validation_vs_kaggle_experiments.png")
 
 
 def lag_transition():
-    features = ["lag_1","lag_4","lag_13","lag_52","rolling_mean_4","rolling_std_4","rolling_mean_13","rolling_std_13","SalesLag52","SalesLag52_available"]
-    matrix = np.array([[1,0]]*8 + [[0,1],[0,1]])
-    fig, ax = plt.subplots(figsize=(9, 8)); ax.imshow(matrix, cmap="RdYlGn", vmin=0, vmax=1, aspect="auto")
-    ax.set_xticks([0,1],["Old unsafe experiment","Final safe experiment"],rotation=10); ax.set_yticks(range(len(features)),features)
-    for r in range(10):
-        for c in range(2): ax.text(c,r,"USED" if matrix[r,c] else "REMOVED",ha="center",va="center",fontsize=9)
-    ax.set_title("Removal of inference-unsafe lag and rolling features", fontsize=16, weight="bold")
-    save(fig, "04_lag_rolling_to_safe_lag52.png")
+    rows = [
+        "lag_1 / lag_4 / lag_13",
+        "rolling mean/std (4, 13)",
+        "positional lag_52",
+        "exact-date SalesLag52",
+        "SalesLag52_available",
+        "aggregate mean/median/std",
+        "aggregate count features",
+        "calendar/holiday/markdown FE",
+        "all engineered features retained",
+        "full-data production refit",
+    ]
+    columns = ["Unsafe lag/rolling", "Safe SalesLag52", "Corrected safe FE", "Final best — 2809"]
+    # 0 = absent/removed, 1 = used. This matrix summarizes the documented experiment configurations.
+    matrix = np.array([
+        [1,0,0,0], [1,0,0,0], [1,0,0,0],
+        [0,1,1,1], [0,1,1,1], [1,1,1,1],
+        [0,0,1,1], [1,1,1,1], [0,0,1,1], [0,0,0,1],
+    ])
+    fig, ax = plt.subplots(figsize=(13, 9)); ax.imshow(matrix, cmap="RdYlGn", vmin=0, vmax=1, aspect="auto")
+    ax.set_xticks(range(4), columns, rotation=12); ax.set_yticks(range(len(rows)), rows)
+    for r in range(len(rows)):
+        for c in range(4): ax.text(c,r,"USED" if matrix[r,c] else "NO",ha="center",va="center",fontsize=9)
+    ax.set_title("LightGBM experiment feature retention and final-training changes", fontsize=16, weight="bold")
+    ax.text(.5,-.12,"The final 2809 model keeps inference-safe features, removes short target lags/rolling windows, and refits on all labeled data.",transform=ax.transAxes,ha="center",color=PURPLE,weight="bold")
+    save(fig, "04_feature_retention_across_experiments.png")
 
 
 def feature_groups():
