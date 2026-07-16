@@ -19,8 +19,8 @@ CURVES = {
 TRIAL_WMAE = [1604.5135, 1567.7045, 1607.1228, 1616.6889]
 
 
-def save(fig, name):
-    fig.tight_layout()
+def save(fig, name, rect=None):
+    fig.tight_layout(rect=rect)
     fig.savefig(OUT / name, dpi=230, bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
@@ -174,6 +174,36 @@ def best_hyperparameters():
     save(fig,"08_best_hyperparameters.png")
 
 
+def hyperparameter_sensitivity():
+    # The final run requested more trials, but only four completed before timeout.
+    trials = {
+        "learning_rate": [0.088655, 0.069402, 0.092937, 0.072979],
+        "num_leaves": [253, 313, 163, 206],
+        "max_depth": [11, 12, 13, 12],
+        "min_child_samples": [83, 86, 100, 58],
+        "subsample": [0.813683, 0.781204, 0.792468, 0.808429],
+        "colsample_bytree": [0.824907, 0.776519, 0.780910, 0.812282],
+        "reg_alpha": [0.005531, 0.001307, 0.002327, 0.008168],
+        "reg_lambda": [0.039523, 0.098423, 0.005013, 0.064079],
+        "min_split_gain": [0.0, 0.120223, 0.104951, 0.039935],
+    }
+    wmae = np.array(TRIAL_WMAE)
+    fig, axes = plt.subplots(3, 3, figsize=(16, 13))
+    for ax, (name, values) in zip(axes.flat, trials.items()):
+        values = np.asarray(values)
+        order = np.argsort(values)
+        ax.plot(values[order], wmae[order], color=SLATE, alpha=.45, lw=1.5)
+        ax.scatter(values, wmae, color=BLUE, s=75)
+        ax.scatter([values[1]], [wmae[1]], color=GREEN, s=120, zorder=4, label="Best: Trial 1")
+        for trial_number, (x, y) in enumerate(zip(values, wmae)):
+            ax.annotate(f"T{trial_number}", (x, y), xytext=(4,5), textcoords="offset points", fontsize=9)
+        ax.set(title=name, ylabel="Validation WMAE")
+        ax.grid(alpha=.2); ax.legend(fontsize=8)
+    fig.suptitle("LightGBM hyperparameter sensitivity — 4 completed trials", fontsize=19, weight="bold")
+    fig.text(.5,.018,"20 trials were requested, but only 4 completed before timeout. Treat these plots as directional, not statistically robust sensitivity estimates.",ha="center",color=RED,weight="bold",fontsize=12)
+    save(fig,"09_hyperparameter_sensitivity_4_of_20_trials.png", rect=[0,.06,1,.96])
+
+
 if __name__ == "__main__":
-    learning_curves(); trial_comparison(); experiment_evolution(); lag_transition(); feature_groups(); workflow(); best_hyperparameters()
+    learning_curves(); trial_comparison(); experiment_evolution(); lag_transition(); feature_groups(); workflow(); best_hyperparameters(); hyperparameter_sensitivity()
     print(f"Generated model-experiment figures in {OUT}")
