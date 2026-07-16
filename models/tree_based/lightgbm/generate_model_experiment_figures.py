@@ -204,6 +204,46 @@ def hyperparameter_sensitivity():
     save(fig,"09_hyperparameter_sensitivity_4_of_20_trials.png", rect=[0,.06,1,.96])
 
 
+def hyperparameter_table():
+    rows = [
+        ["boosting_type", "gbdt", "Gradient-boosted decision trees"],
+        ["objective", "regression_l1", "Optimize absolute error"],
+        ["learning_rate", "0.0694", "Contribution of each new tree"],
+        ["num_leaves", "313", "Maximum leaves per tree"],
+        ["max_depth", "12", "Maximum tree depth"],
+        ["min_child_samples", "86", "Minimum rows in a leaf"],
+        ["subsample", "0.7812", "Row fraction per boosting step"],
+        ["colsample_bytree", "0.7765", "Feature fraction per tree"],
+        ["reg_alpha", "0.00131", "L1 regularization"],
+        ["reg_lambda", "0.09842", "L2 regularization"],
+        ["min_split_gain", "0.12022", "Minimum gain required for a split"],
+        ["maximum boosting rounds", "1200", "Optuna/validation training budget"],
+        ["early_stopping_rounds", "80", "Stop after no validation improvement"],
+        ["best_iteration", "844", "Rounds used for final full-data refit"],
+        ["holiday sample weight", "5", "Match Kaggle WMAE weighting"],
+        ["random_state", "42", "Reproducibility"],
+    ]
+    fig, ax = plt.subplots(figsize=(15, 11)); ax.axis("off")
+    table = ax.table(
+        cellText=rows,
+        colLabels=["Hyperparameter", "Best value", "Purpose"],
+        colWidths=[.30, .20, .50],
+        cellLoc="left", colLoc="left", loc="center",
+    )
+    table.auto_set_font_size(False); table.set_fontsize(12); table.scale(1, 1.75)
+    for (row, col), cell in table.get_celld().items():
+        cell.set_edgecolor("#CBD5E1")
+        if row == 0:
+            cell.set_facecolor(BLUE); cell.set_text_props(color="white", weight="bold")
+        elif row % 2 == 0:
+            cell.set_facecolor("#F8FAFC")
+        if row in (12, 13, 14):
+            cell.set_facecolor("#F5F3FF")
+    ax.set_title("Best LightGBM hyperparameters", fontsize=22, weight="bold", pad=25)
+    fig.text(.5,.035,"Maximum budget = 1,200 rounds; early stopping selected 844 rounds for the final full-data model.",ha="center",color=PURPLE,weight="bold",fontsize=13)
+    save(fig,"10_best_hyperparameters_table.png", rect=[0,.06,1,.96])
+
+
 if __name__ == "__main__":
-    learning_curves(); trial_comparison(); experiment_evolution(); lag_transition(); feature_groups(); workflow(); best_hyperparameters(); hyperparameter_sensitivity()
+    learning_curves(); trial_comparison(); experiment_evolution(); lag_transition(); feature_groups(); workflow(); best_hyperparameters(); hyperparameter_sensitivity(); hyperparameter_table()
     print(f"Generated model-experiment figures in {OUT}")
