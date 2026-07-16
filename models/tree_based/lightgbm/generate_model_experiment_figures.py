@@ -138,6 +138,42 @@ def workflow():
     save(fig,"06_training_workflow.png")
 
 
+def best_hyperparameters():
+    fig, ax = plt.subplots(figsize=(15, 9)); ax.axis("off")
+    groups = [
+        ("Boosting", [
+            "boosting_type = gbdt",
+            "objective = regression_l1",
+            "learning_rate = 0.0694",
+            "num_leaves = 313",
+            "max_depth = 12",
+        ], .20, "#EFF6FF", BLUE),
+        ("Regularization & sampling", [
+            "min_child_samples = 86",
+            "subsample = 0.7812",
+            "colsample_bytree = 0.7765",
+            "reg_alpha = 0.00131",
+            "reg_lambda = 0.09842",
+            "min_split_gain = 0.12022",
+        ], .50, "#F0FDF4", GREEN),
+        ("Training budget", [
+            "maximum rounds = 1200",
+            "early_stopping_rounds = 80",
+            "best iteration = 844",
+            "final refit rounds = 844",
+            "holiday sample weight = 5",
+            "random_state = 42",
+        ], .80, "#F5F3FF", PURPLE),
+    ]
+    for title, lines, x, face, edge in groups:
+        text = title + "\n\n" + "\n".join(lines)
+        ax.text(x, .54, text, transform=ax.transAxes, ha="center", va="center", fontsize=14,
+                linespacing=1.55, bbox=dict(boxstyle="round,pad=1.2", facecolor=face, edgecolor=edge, linewidth=3))
+    ax.set_title("Best LightGBM hyperparameters selected by Optuna", fontsize=21, weight="bold", pad=25)
+    ax.text(.5,.08,"Optuna searched with a maximum budget of 1,200 rounds; early stopping selected 844 rounds for the final full-data model.",transform=ax.transAxes,ha="center",color=SLATE,weight="bold",fontsize=13)
+    save(fig,"08_best_hyperparameters.png")
+
+
 if __name__ == "__main__":
-    learning_curves(); trial_comparison(); experiment_evolution(); lag_transition(); feature_groups(); workflow()
+    learning_curves(); trial_comparison(); experiment_evolution(); lag_transition(); feature_groups(); workflow(); best_hyperparameters()
     print(f"Generated model-experiment figures in {OUT}")
