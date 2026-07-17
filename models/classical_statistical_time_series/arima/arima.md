@@ -535,3 +535,360 @@ Tree-based models უკეთ მუშაობენ, რადგან მ�
 ## საბოლოო აუდიტირებული შეჯამება
 
 ARIMA aggregate weekly total-ს პროგნოზირებს და შემდეგ Store–Dept rows-ზე ანაწილებს. Flow: total aggregation → chronological 39-week validation → `(p,d,q)` grid → `last_year_share`/`blended_share` comparison → WMAE → full-data refit → raw-input allocation pipeline. Baseline `(1,1,1)` იყო `1856.8605`; საუკეთესო tuned `(1,0,2)` + last-year share გახდა `1829.8800`. Seasonal naive `1800.1736` მაინც უკეთესი დარჩა. დადასტურებული Kaggle score არ არის, ამიტომ ARIMA champion არ არის.
+
+## Repaired ARIMAX v2 — ახალი training და შედეგები
+
+ძველი aggregate ARIMAX-ის validation WMAE იყო:
+
+```text
+2563.6915
+```
+
+ძველი ვერსიის მთავარი პრობლემა იყო რვა correlation-selected raw aggregate feature, განსხვავებული feature scales და raw total-sales target. ახალი experiment-ის მიზანი იყო ARIMAX-ის representation-ისა და numerical stability-ის გაუმჯობესება ისე, რომ future data leakage არ დაგვემატებინა.
+
+### Validation setup
+
+Validation setup უცვლელი დარჩა, რათა ძველ ARIMA/ARIMAX run-ებთან შედარება სამართლიანი ყოფილიყო:
+
+```text
+Total weekly dates: 143
+Training weeks:     104
+Validation weeks:    39
+Validation start:   2012-02-03
+Validation end:     2012-10-26
+Holiday weight:     5
+Allocation:         last_year_share
+```
+
+Seasonal naive reference:
+
+```text
+WMAE = 1800.1736
+```
+
+### Target engineering
+
+ARIMAX-ს raw aggregate sales-ის ნაცვლად `log1p`-გარდაქმნილი target მივაწოდეთ:
+
+```python
+model_target = np.log1p(np.clip(total_weekly_sales, 0.0, None))
+```
+
+ფორმულა:
+
+```text
+z_t = log(1 + TotalSales_t)
+```
+
+ამის მიზანი იყო:
+
+- holiday spikes-ის გავლენის შემცირება;
+- variance-ის უფრო სტაბილურად ქცევა;
+- ათობით მილიონიანი target scale-ის შეკუმშვა;
+- optimizer-ის numerical stability-ის გაუმჯობესება.
+
+Forecast-ის შემდეგ prediction საწყის sales scale-ზე დავაბრუნეთ:
+
+```python
+forecast_sales = np.expm1(forecast_log)
+```
+
+```text
+ŷ_t = exp(ẑ_t) - 1
+```
+
+### Exogenous feature engineering
+
+ძველი raw/correlation-selected feature set შევცვალეთ ექვსი compact future-known feature-ით:
+
+```text
+week_sin
+week_cos
+week_sin_2
+week_cos_2
+holiday_share
+log_total_markdown
+```
+
+#### პირველი annual Fourier harmonic
+
+```text
+week_sin = sin(2π × week_of_year / 52)
+week_cos = cos(2π × week_of_year / 52)
+```
+
+ეს ორი feature annual seasonal position-ს cyclic ფორმაში აღწერს. Week 52 და Week 1 ერთმანეთთან ახლოს რჩება, განსხვავებით raw `month` ან `weekofyear` feature-ისგან.
+
+#### მეორე annual Fourier harmonic
+
+```text
+week_sin_2 = sin(4π × week_of_year / 52)
+week_cos_2 = cos(4π × week_of_year / 52)
+```
+
+მეორე harmonic მოდელს აძლევს საშუალებას წელიწადში ერთზე მეტი seasonal rise/fall დაიჭიროს. ეს კვლავ linear regressors-ია, მაგრამ მათი კომბინაცია უფრო მოქნილ seasonal curve-ს ქმნის.
+
+#### Holiday share
+
+```python
+holiday_share = features.groupby("Date")["IsHoliday"].mean()
+```
+
+ეს feature აღნიშნავს კვირის aggregate holiday signal-ს. Walmart dataset-ში holiday indicator Store-Date დონეზეა მოცემული, ხოლო ჩვენი target ერთი Walmart-wide weekly total-ია, ამიტომ იგივე weekly aggregate level გამოვიყენეთ.
+
+#### Log total markdown
+
+ჯერ ყველა Store-Date Markdown მნიშვნელობა კვირის მიხედვით დავაჯამეთ:
+
+```text
+total_markdown_t = Σ MarkDown1..5
+```
+
+შემდეგ:
+
+```text
+log_total_markdown_t = log(1 + total_markdown_t)
+```
+
+`log1p` საჭიროა, რადგან raw Markdown totals ძალიან skewed იყო და რამდენიმე promotion week-ს ძალიან დიდი მნიშვნელობა ჰქონდა.
+
+### Train-only feature scaling
+
+ყველა exogenous feature training statistics-ით დავასტანდარტეთ:
+
+```text
+x_scaled = (x - μ_train) / σ_train
+```
+
+Validation-ზე გამოყენებულია მხოლოდ training mean/std. Validation statistics scaling-ში არ შეგვიტანია, ამიტომ preprocessing leakage-safe დარჩა.
+
+Full-data registry refit-ის დროს mean/std თავიდან გამოითვლება მთელ train.csv-ზე და pipeline-ში ინახება, რათა inference-ზე ზუსტად იგივე transformation შესრულდეს.
+
+### რა ამოვიღეთ ძველი ARIMAX-იდან
+
+ახალ feature set-ში აღარ გვაქვს:
+
+```text
+raw month
+is_december
+raw MarkDown3
+raw MarkDown5
+raw total_markdown
+Temperature
+correlation-based top-8 selection
+```
+
+ამის მიზეზებია:
+
+- raw `month` cyclic seasonality-ს არასწორ linear ordering-ს აძლევდა;
+- `is_december`, `month`, Markdown და holiday features ერთმანეთთან redundant შეიძლებოდა ყოფილიყო;
+- raw Markdown ძალიან skewed იყო;
+- მხოლოდ 104 training კვირაზე 8 noisy regression coefficient არასტაბილური იყო;
+- Temperature aggregate mean Store/Dept-specific effect-ს კარგავდა.
+
+### ARIMAX order search
+
+Search space გავაფართოვეთ:
+
+```text
+p ∈ {0,1,2,3,4}
+d ∈ {0,1}
+q ∈ {0,1,2,3,4}
+```
+
+სულ:
+
+```text
+5 × 2 × 5 = 50 ARIMAX orders
+```
+
+Allocation strategy მხოლოდ `last_year_share` იყო, რადგან წინა experiment-ში `blended_share` ყველა order-ზე უარესი აღმოჩნდა.
+
+Optimizer-ის მაქსიმალური iterations გაიზარდა:
+
+```text
+maxiter: 200 → 300
+```
+
+### საუკეთესო ახალი ARIMAX
+
+საუკეთესო validation result:
+
+```text
+Order:             ARIMAX(1,0,1)
+Exogenous inputs:  6 engineered features
+Allocation:        last_year_share
+Validation WMAE:   1824.4816
+Kaggle WMAE:       3200
+```
+
+`ARIMAX(1,0,1)` ნიშნავს:
+
+```text
+p = 1 → ერთი AR lag
+d = 0 → differencing არ გამოიყენება
+q = 1 → ერთი previous innovation/error lag
+```
+
+Exogenous regression terms ემატება ARMA dynamics-ს:
+
+```text
+y_t = c + φ₁y_(t-1) + θ₁ε_(t-1) + βᵀX_t + ε_t
+```
+
+ამ experiment-ში equation log-total-sales scale-ზე fit-დება.
+
+### შედარება ძველ ARIMAX-თან
+
+```text
+Old ARIMAX:       2563.6915
+Repaired ARIMAX:  1824.4816
+Improvement:       739.2099 WMAE
+```
+
+პროცენტულად:
+
+```text
+(2563.6915 - 1824.4816) / 2563.6915 ≈ 28.83%
+```
+
+ეს გვიჩვენებს, რომ ძველი ARIMAX-ის ცუდი შედეგი მხოლოდ external variables-ის გამოყენების პრობლემა არ ყოფილა. Target transformation, compact feature engineering და train-only scaling მნიშვნელოვანი იყო.
+
+### შედარება pure ARIMA-სთან
+
+```text
+Best pure ARIMA:      1829.8800
+Best repaired ARIMAX: 1824.4816
+Difference:              5.3984
+```
+
+Validation-ზე repaired ARIMAX pure ARIMA-ზე დაახლოებით `0.30%`-ით უკეთესი გახდა. გაუმჯობესება რეალურია, მაგრამ ძალიან მცირეა.
+
+### შედარება Seasonal Naive-სთან
+
+```text
+Seasonal naive:       1800.1736
+Repaired ARIMAX:      1824.4816
+Gap:                    24.3080
+```
+
+Repaired ARIMAX seasonal naive-ზე კვლავ დაახლოებით `1.35%`-ით უარესია. ანუ yearly Store–Dept lag-52 signal ჯერ კიდევ უფრო ძლიერია, ვიდრე aggregate ARIMAX forecast + allocation pipeline.
+
+### საუკეთესო validation orders
+
+```text
+(1,0,1) → 1824.4816
+(0,1,1) → 1830.1113
+(1,1,2) → 1832.4395
+(1,0,2) → 1835.2707
+(0,1,2) → 1854.0596
+(3,1,3) → 1863.6190
+(2,1,3) → 1864.3769
+(2,1,4) → 1867.3321
+(1,1,4) → 1868.0885
+(2,1,1) → 1870.3414
+```
+
+### რატომ აფეთქდა ზოგი order
+
+რამდენიმე order-მა ძალიან მაღალი WMAE მიიღო:
+
+```text
+(0,0,0) → 15952.32
+(0,0,1) → 15952.29
+(0,0,2) → 15951.82
+(0,0,3) → 15915.47
+(0,0,4) → 15929.20
+```
+
+ამ შემთხვევებში dynamic structure საკმარისი არ იყო log-total-sales level-ის გრძელ 39-week horizon-ზე დასასტაბილურებლად. მხოლოდ exogenous regression და მცირე MA component aggregate level-ს ცუდად extrapolate-ებდა.
+
+სხვა unstable configurations-ში მთავარი რისკები იყო:
+
+- მხოლოდ 104 training observation;
+- მაღალი `p` და `q` order;
+- ბევრი AR/MA coefficient მცირე sample-ზე;
+- 39-step forecast sensitivity;
+- near-cancellation ან poorly identified AR/MA terms;
+- validation period-ის exogenous distribution shift.
+
+50 order-იდან მხოლოდ ნაწილია `2000` WMAE-ზე უკეთესი. ეს ნიშნავს, რომ ARIMAX order selection ძალიან მგრძნობიარეა და training likelihood მარტო სანდო selection criterion არ არის.
+
+### Validation და Kaggle generalization gap
+
+```text
+Validation WMAE: 1824.48
+Kaggle WMAE:     3200
+Gap:             1375.52
+```
+
+Kaggle error validation-ზე დაახლოებით `75.4%`-ით მაღალია. ამიტომ საუკეთესო validation ARIMAX-ს champion-ად ვერ ჩავთვლით.
+
+Gap-ის შესაძლო მიზეზებია:
+
+1. ერთი 39-week validation split order/feature selection-ს კონკრეტულ პერიოდზე არგებს.
+2. Kaggle test period-ის seasonal და promotion distribution განსხვავებულია.
+3. Aggregate forecast შეიძლება reasonable იყოს, მაგრამ last-year row allocation test-ზე უფრო მეტად ცდებოდეს.
+4. Store–Dept-specific external-feature effects aggregate regressors-ში დაკარგულია.
+5. ARIMAX validation ranking მცირე განსხვავებებითაა შექმნილი; best order-ის `5.4`-იანი gain pure ARIMA-სთან შედარებით robust improvement არ არის.
+
+### საბოლოო pipeline flow
+
+```text
+train.csv Weekly_Sales
+        ↓ group by Date / sum
+Walmart weekly total series
+        ↓ log1p
+log aggregate target
+
+features.csv
+        ↓ weekly aggregation
+holiday share + total markdown
+        ↓ Fourier features + log1p markdown
+6 exogenous variables
+        ↓ train-only mean/std scaling
+standardized exogenous matrix
+
+log target + exogenous matrix
+        ↓ ARIMAX(1,0,1)
+39 weekly aggregate forecasts
+        ↓ expm1
+weekly total-sales forecasts
+        ↓ last-year Store–Dept shares
+row-level Weekly_Sales predictions
+```
+
+### Repaired ARIMAX figures
+
+Figures ინახება:
+
+```text
+models/classical_statistical_time_series/arima/figures/arimax_repaired/
+```
+
+დამატებულია:
+
+1. result progression;
+2. top-15 order leaderboard;
+3. `(p,d,q)` heatmaps `d=0` და `d=1`-ისთვის;
+4. order stability distribution;
+5. differencing sensitivity;
+6. feature-engineering flow;
+7. selected-feature table;
+8. target/scaling transformations;
+9. repaired ARIMAX architecture;
+10. best-result table;
+11. validation-vs-Kaggle gap;
+12. unstable-order explanation.
+
+### Repaired ARIMAX-ის საბოლოო შეფასება
+
+Repaired ARIMAX ძველ ARIMAX-ზე მნიშვნელოვნად უკეთესია და validation-ზე tuned pure ARIMA-ს მცირედით აჯობა. მიუხედავად ამისა:
+
+- seasonal naive კვლავ უკეთესია;
+- Kaggle score `3200` მნიშვნელოვნად უარესია validation score-ზე;
+- aggregate representation Store–Dept-level interactions-ს კვლავ კარგავს;
+- best validation gain pure ARIMA-სთან შედარებით მხოლოდ `5.4 WMAE`-ია;
+- საბოლოო საუკეთესო Kaggle კანდიდატად tree-based models რჩება.
+
+ამიტომ repaired ARIMAX უნდა შეფასდეს როგორც წარმატებული architecture repair და ძლიერი statistical experiment, მაგრამ არა როგორც final champion.
